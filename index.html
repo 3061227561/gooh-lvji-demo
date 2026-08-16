@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gooh旅记 · 改进版 Demo — 不会搞错时区的旅行计划器</title>
+  <meta name="description" content="Gooh旅记改进版交互原型：把 3,200 条差评变成 3 个核心重构（时区双时钟 / AI 快进 / 里程可信）。" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- ============ 顶部栏 ============ -->
+  <header class="app-header">
+    <div class="brand">
+      Gooh旅记<span class="brand-badge">改进版 Demo</span>
+    </div>
+    <div class="header-title" id="screen-title">1 / 6 · 认识产品 · 差评与洞察</div>
+    <button class="btn-ghost" id="btn-restart" title="回到第 1 屏">↺ 重新开始</button>
+  </header>
+
+  <!-- ============ 走查舞台 ============ -->
+  <main id="stage">
+
+    <!-- ===== S1 首屏 Hero：认识产品 ===== -->
+    <section class="screen is-active" data-title="认识产品 · 差评与洞察">
+      <div class="container hero">
+        <div class="hero-copy">
+          <div class="eyebrow">PRODUCT IMPROVEMENT · 2026</div>
+          <h1>不会搞错时区的<br /><span class="hl">旅行计划器</span></h1>
+          <p class="hero-sub">
+            一次规划，全程可信。<br />
+            我们把 <b>{{reviewCount}} 条差评</b> 归纳成 <b>{{painCount}} 类痛点</b>，
+            用 <b>{{fixCount}} 个核心重构</b> 回答它们。
+          </p>
+          <ul class="hero-arrow">
+            <li><b>信任层漏水</b>（时区 · 里程）＋ <b>方向层跑偏</b>（AI · 付费 · 交通）</li>
+            <li>主线：<b>把信任做回来，把智能做具体。</b></li>
+          </ul>
+          <button class="btn-primary btn-lg" data-next>开始一次可信的旅行规划 →</button>
+        </div>
+
+        <div class="hero-right">
+          <div class="card review-wall-card">
+            <div class="card-head">
+              <h3>差评证据墙 <span class="pill">{{reviewCount}} 条</span></h3>
+              <p class="card-sub">不是「吐槽」，是 KANO 归类后的需求信号</p>
+            </div>
+            <div id="review-wall" class="review-wall"></div>
+          </div>
+          <div id="kano-legend" class="kano-legend"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== S2 创建行程：时区安全 ===== -->
+    <section class="screen" data-title="创建行程 · 时区安全">
+      <div class="container split">
+        <div class="col-form">
+          <div class="eyebrow">STEP 01 · 创建行程</div>
+          <h2>目的地，先说清楚「几点」</h2>
+          <p class="lead">行程规划前，先把时区这件事摆在桌面上——这是全部信任的地基。</p>
+
+          <div class="form-card card">
+            <label class="field">
+              <span>目的地</span>
+              <select id="tz-city"></select>
+            </label>
+            <label class="field">
+              <span>出发 — 返回</span>
+              <div class="field-inline">
+                <input type="date" value="2026-08-20" disabled />
+                <span class="to">→</span>
+                <input type="date" value="2026-08-24" disabled />
+              </div>
+            </label>
+            <label class="field">
+              <span>我的时区（家乡）</span>
+              <div class="field-static">北京 · UTC+8</div>
+            </label>
+            <p class="field-hint">⚠️ 演示数据主线固定为东京 5 日；切换目的地仅演示「时区识别」机制。</p>
+            <button class="btn-primary btn-block" id="btn-s2-next" data-next>生成行程时间轴 →</button>
+          </div>
+        </div>
+
+        <div class="col-tz">
+          <div id="tz-card" class="card tz-card">
+            <!-- 由 app.js 渲染 -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== S3 时间轴排程：双时钟签名功能（英雄屏） ===== -->
+    <section class="screen" data-title="时间轴排程 · 双时钟签名功能">
+      <div class="container wide">
+        <div class="timeline-head card">
+          <div class="tl-left">
+            <div class="eyebrow">STEP 02 · 逐日排程</div>
+            <h2 id="trip-meta"></h2>
+            <p class="card-sub">每条行程，同时告诉你<b>「当地几点」</b>和<b>「家里几点」</b></p>
+          </div>
+          <div class="tl-clocks">
+            <div class="clock-chip clock-dest">
+              <span id="clock-dest" class="clock-time">--:--</span>
+              <span class="clock-city">东京 · UTC+9</span>
+            </div>
+            <div class="clock-chip clock-home">
+              <span id="clock-home" class="clock-time">--:--</span>
+              <span class="clock-city">北京 · UTC+8</span>
+            </div>
+            <div class="clock-tip">🕐 实时 · 本地对照</div>
+          </div>
+        </div>
+
+        <div id="day-tabs" class="day-tabs"></div>
+        <div id="day-panel" class="day-panel"></div>
+
+        <div class="timeline-foot card">
+          <div class="tf-note">
+            <b>跨时区衔接提示</b>：D1 落地日已自动安排「轻行程」缓冲时差；
+            所有时间均已做<b>夏令时自动校验</b>（2026 东京无夏令时差异）。
+          </div>
+          <button class="btn-primary" id="btn-s3-next" data-next>看 AI 怎么帮忙 →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== S4 AI 行程快进：只做脏活不做决策 ===== -->
+    <section class="screen" data-title="AI 行程快进 · 只做脏活不做决策">
+      <div class="container split">
+        <div class="col-form">
+          <div class="eyebrow">STEP 03 · 智能录入</div>
+          <h2>AI 不做决策，<br />只把乱信息变成行程</h2>
+          <p class="lead">用户骂「AI 鸡肋」，是因为 AI 替他做决定。我们把 AI 关回笼子里，让它只干脏活。</p>
+
+          <div class="card ai-inbox">
+            <div class="card-head">
+              <h3>📥 {{aiSource}}</h3>
+              <p class="card-sub">{{aiConstraints}}</p>
+            </div>
+            <pre id="ai-messy" class="messy"></pre>
+            <button class="btn-primary btn-block" id="ai-run-btn">▶ 开始解析</button>
+          </div>
+
+          <div class="card philosophy" id="ai-philosophy"></div>
+        </div>
+
+        <div class="col-ai">
+          <div class="card ai-steps-card">
+            <h3>解析过程</h3>
+            <div id="ai-steps" class="ai-steps"></div>
+          </div>
+          <div class="card ai-result-card" id="ai-result-wrap">
+            <h3>解析结果 <span class="pill">待确认</span></h3>
+            <div id="ai-result" class="ai-result"></div>
+            <button class="btn-primary btn-block" id="ai-merge-btn" disabled>一键并入时间轴 →</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== S5 数据可信：里程不缩水 ===== -->
+    <section class="screen" data-title="数据可信 · 里程不缩水">
+      <div class="container wide">
+        <div class="eyebrow">STEP 04 · 复核信任</div>
+        <h2>数据可以被系统吃掉，<br />但不能被「假装没发生」</h2>
+        <p class="lead">手机省电模式会在后台静默关掉定位——里程悄悄缩水，用户看到的是「假数据」，丢的是对产品的信任。</p>
+
+        <div class="mileage-grid">
+          <div class="card mileage-card">
+            <div class="card-head"><h3>每日里程</h3><p class="card-sub">实测 / 估算，标得清清楚楚</p></div>
+            <div id="mileage-days" class="mileage-days"></div>
+          </div>
+          <div class="col-mileage">
+            <div id="lost-card" class="card lost-card"></div>
+            <div class="card record-card" id="record-card">
+              <h3>手动补录</h3>
+              <p class="card-sub">知道数据丢了，就该允许用户把它「补回来」</p>
+              <div class="record-row">
+                <input type="range" id="record-slider" min="0" max="5" step="0.1" value="3.1" />
+                <b id="record-val">3.1 km</b>
+              </div>
+              <button class="btn-primary btn-block" id="record-btn">补录这段里程</button>
+            </div>
+            <div id="trust-report" class="card trust-report"></div>
+          </div>
+        </div>
+
+        <div class="timeline-foot card">
+          <div class="tf-note">
+            <b>产品原则</b>：宁可诚实地说「这段是估算」，也绝不把假数据当真的给用户。手动补录 + 可信度标签 = 优雅降级。
+          </div>
+          <button class="btn-primary" id="btn-s5-next" data-next>看看怎么交付 →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== S6 分享交付 + 定价策略 ===== -->
+    <section class="screen" data-title="分享交付 · 定价策略">
+      <div class="container wide">
+        <div class="eyebrow">STEP 05 · 分享交付</div>
+        <h2>一份拿得出手的行程，<br />一套说得清楚的收费</h2>
+
+        <div class="deliver-grid">
+          <div id="share-card" class="share-card">
+            <!-- 由 app.js 渲染 -->
+          </div>
+
+          <div class="pricing-col">
+            <div class="card pricing-table">
+              <table>
+                <thead>
+                  <tr><th>免费</th><th>Pro · {{price}}</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><ul id="pricing-free"></ul></td><td><ul id="pricing-pro"></ul></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="card why-card" id="pricing-why"></div>
+          </div>
+        </div>
+
+        <div class="finish card">
+          <h3>谢谢观看 👋</h3>
+          <p>「用户骂的不是功能，是我们不值得信任。」——我们用 3 个核心重构回答这句话。</p>
+          <button class="btn-ghost btn-lg" id="btn-finish">↺ 回到开头，再看一遍</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ 走查底部控制条 ============ -->
+  <footer class="walk-footer">
+    <div class="walk-left">
+      <div id="walk-progress-dots" class="walk-dots"></div>
+      <span class="walk-label">第 <b id="walk-current">1</b> / 6 屏</span>
+    </div>
+    <div class="walk-controls">
+      <button class="btn-ghost" id="btn-prev" disabled>← 上一步</button>
+      <button class="btn-primary" id="btn-next">下一步 →</button>
+    </div>
+  </footer>
+
+  <!-- ============ 脚本 ============ -->
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
