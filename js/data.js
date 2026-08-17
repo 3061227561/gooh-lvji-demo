@@ -10,8 +10,8 @@
 window.DATA = {
   product: {
     name: 'Gooh旅记',
-    tagline: '不会搞错时区的旅行计划器',
-    sub: '一次规划，全程可信。',
+    tagline: '懒人攻略生成器',
+    sub: '输入目的地、预算、时间，剩下交给 Agent。',
     reviewCount: '3,200',
     painCount: '5',
     fixCount: '3',
@@ -31,6 +31,9 @@ window.DATA = {
     { name: '新加坡', tz: 'UTC+8', diff: '0',     sun: { rise: '07:02', set: '19:12' } },
     { name: '伦敦', tz: 'UTC+1', diff: '-7 小时', sun: { rise: '05:48', set: '20:18' } },
   ],
+
+  /* S1 热门目的地（点击快速填入） */
+  hotDests: ['东京', '大阪', '香港', '新加坡', '首尔', '曼谷'],
 
   /* ---------- S1 差评墙（KANO 归类后的「证据墙」） ---------- */
   reviews: [

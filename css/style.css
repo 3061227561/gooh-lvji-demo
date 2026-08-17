@@ -542,6 +542,124 @@ h3 { font-size: 17px; font-weight: 700; }
 .walk-controls { display: flex; gap: 10px; }
 .walk-controls .btn-primary, .walk-controls .btn-ghost { padding: 9px 18px; font-size: 14px; }
 
+/* ---------- S1 懒人攻略生成器（输入 → 生成） ---------- */
+.gen-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 24px;
+  padding-top: 56px;
+  text-align: center;
+}
+.gen-intro h1 { color: #fff; font-size: 42px; line-height: 1.18; }
+.gen-intro .hl { color: var(--accent); }
+.gen-sub { color: #cdd8e8; font-size: 15px; line-height: 1.8; max-width: 44em; margin: 16px auto 0; }
+.gen-card {
+  width: 100%;
+  max-width: 560px;
+  padding: 26px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.gen-card .field > span {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--navy-800);
+  margin-bottom: 8px;
+}
+.gen-card input[type="text"],
+.gen-card input[type="date"] {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--ink);
+  background: #fff;
+}
+.gen-card input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+.hot-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.hot-chip {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  transition: all .15s ease;
+}
+.hot-chip:hover { border-color: var(--accent); color: var(--accent-deep); }
+.hot-chip.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.seg button {
+  padding: 11px 0;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--ink);
+  transition: all .15s ease;
+}
+.seg button.is-on { background: var(--navy-800); border-color: var(--navy-800); color: #fff; }
+.btn-gen { font-size: 17px; padding: 15px 0; margin-top: 2px; }
+.gen-hint { text-align: center; font-size: 12.5px; color: var(--faint); }
+
+/* 生成攻略遮罩 */
+.gen-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 33, 61, .72);
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.gen-overlay.is-open { display: flex; animation: screenIn .2s ease; }
+.gen-overlay-card {
+  width: min(440px, 92vw);
+  background: #fff;
+  border-radius: 20px;
+  padding: 26px;
+  box-shadow: var(--shadow-lg);
+}
+.gen-overlay-title { font-size: 17px; font-weight: 800; margin-bottom: 14px; }
+.gen-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  font-size: 14px;
+  opacity: .4;
+  transition: opacity .3s ease;
+}
+.gen-step.is-done { opacity: 1; }
+.gen-step span {
+  width: 22px; height: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 800;
+}
+.gen-step.is-done span { background: var(--green-soft); color: var(--green); }
+.gen-done {
+  margin-top: 12px;
+  padding: 10px;
+  background: var(--green-soft);
+  color: var(--green);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 960px) {
   .hero, .split, .mileage-grid, .deliver-grid { grid-template-columns: 1fr; }
@@ -553,6 +671,7 @@ h3 { font-size: 17px; font-weight: 700; }
 }
 @media (max-width: 620px) {
   .container { padding: 24px 16px; }
+  .gen-intro h1 { font-size: 30px; }
   .brand-badge { display: none; }
   .evt-time { min-width: 96px; }
   .t-local { font-size: 17px; }

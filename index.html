@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gooh旅记 · 改进版 Demo — 不会搞错时区的旅行计划器</title>
-  <meta name="description" content="Gooh旅记改进版交互原型：把 3,200 条差评变成 3 个核心重构（时区双时钟 / AI 快进 / 里程可信）。" />
+  <title>Gooh旅记 · 懒人攻略生成器 — Demo</title>
+  <meta name="description" content="Gooh旅记 · 懒人攻略生成器：输入目的地、预算、时间，Agent 在后台生成攻略。走查式交互原型 Demo。" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -21,33 +21,35 @@
   <!-- ============ 走查舞台 ============ -->
   <main id="stage">
 
-    <!-- ===== S1 首屏 Hero：认识产品 ===== -->
-    <section class="screen is-active" data-title="认识产品 · 差评与洞察">
-      <div class="container hero">
-        <div class="hero-copy">
-          <div class="eyebrow">PRODUCT IMPROVEMENT · 2026</div>
-          <h1>不会搞错时区的<br /><span class="hl">旅行计划器</span></h1>
-          <p class="hero-sub">
-            一次规划，全程可信。<br />
-            我们把 <b>{{reviewCount}} 条差评</b> 归纳成 <b>{{painCount}} 类痛点</b>，
-            用 <b>{{fixCount}} 个核心重构</b> 回答它们。
-          </p>
-          <ul class="hero-arrow">
-            <li><b>信任层漏水</b>（时区 · 里程）＋ <b>方向层跑偏</b>（AI · 付费 · 交通）</li>
-            <li>主线：<b>把信任做回来，把智能做具体。</b></li>
-          </ul>
-          <button class="btn-primary btn-lg" data-next>开始一次可信的旅行规划 →</button>
+    <!-- ===== S1 首页：懒人攻略生成器（输入 → 生成） ===== -->
+    <section class="screen is-active" data-title="懒人攻略生成器 · 输入与生成">
+      <div class="container gen-wrap">
+        <div class="gen-intro">
+          <div class="eyebrow">GOOH 懒人攻略生成器</div>
+          <h1>输入 <span class="hl">3 个问题</span>，<br />剩下交给 Agent</h1>
+          <p class="gen-sub">目的地、预算、时间。人数、人物关系、出行偏好这些复杂因素，Agent 在后台替你处理。</p>
         </div>
 
-        <div class="hero-right">
-          <div class="card review-wall-card">
-            <div class="card-head">
-              <h3>差评证据墙 <span class="pill">{{reviewCount}} 条</span></h3>
-              <p class="card-sub">不是「吐槽」，是 KANO 归类后的需求信号</p>
-            </div>
-            <div id="review-wall" class="review-wall"></div>
+        <div class="card gen-card">
+          <div class="field">
+            <span>① 想去哪</span>
+            <input type="text" id="gen-dest" placeholder="输入城市或目的地" value="东京" />
+            <div class="hot-picks" id="gen-hot"></div>
           </div>
-          <div id="kano-legend" class="kano-legend"></div>
+          <div class="field">
+            <span>② 预算</span>
+            <div class="seg" id="gen-budget">
+              <button type="button" data-v="经济">经济</button>
+              <button type="button" data-v="舒适" class="is-on">舒适</button>
+              <button type="button" data-v="豪华">豪华</button>
+            </div>
+          </div>
+          <div class="field">
+            <span>③ 什么时候去</span>
+            <input type="date" id="gen-date" value="2026-08-20" />
+          </div>
+          <button class="btn-primary btn-lg btn-block btn-gen" id="btn-generate">✨ 一键生成攻略</button>
+          <p class="gen-hint">Agent 后台处理：人数 · 人物关系 · 旅游目的 · 出行偏好</p>
         </div>
       </div>
     </section>
@@ -229,6 +231,14 @@
       </div>
     </section>
   </main>
+
+  <!-- ============ 生成攻略遮罩 ============ -->
+  <div class="gen-overlay" id="gen-overlay" aria-hidden="true">
+    <div class="gen-overlay-card">
+      <div class="gen-overlay-title">✨ Agent 正在生成攻略</div>
+      <div class="gen-steps" id="gen-steps"></div>
+    </div>
+  </div>
 
   <!-- ============ 走查底部控制条 ============ -->
   <footer class="walk-footer">

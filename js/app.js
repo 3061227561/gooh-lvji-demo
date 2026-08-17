@@ -45,7 +45,7 @@
   var titles = [];
   var cur = 0;
   var activeDay = 1;
-  var state = { aiParsed: false, aiMerged: false, recorded: false };
+  var state = { aiParsed: false, aiMerged: false, recorded: false, input: null };
 
   /* ---------------- 走查状态机 ---------------- */
   function goTo(i) {
@@ -68,7 +68,9 @@
 
   /* ---------------- S1 差评墙 ---------------- */
   function renderReviewWall() {
-    $('#review-wall').innerHTML = DATA.reviews.map(function (r) {
+    var wall = $('#review-wall');
+    if (!wall) return; // 差评墙按新定位移到结果页底部（下一步实现）
+    wall.innerHTML = DATA.reviews.map(function (r) {
       return '<article class="review">' +
         '<div class="review-top">' +
           '<span class="review-stars">' + stars[r.star] + '</span>' +
@@ -79,9 +81,54 @@
         '<div class="review-user">— ' + r.user + '</div>' +
       '</article>';
     }).join('');
-    $('#kano-legend').innerHTML = DATA.kanoLegend.map(function (k) {
+    var legend = $('#kano-legend');
+    if (legend) legend.innerHTML = DATA.kanoLegend.map(function (k) {
       return '<span class="kano ' + k.key + '">' + k.label + '</span>';
     }).join('');
+  }
+
+  /* ---------------- S1 懒人攻略生成器：输入 → 生成 ---------------- */
+  function renderGenHot() {
+    $('#gen-hot').innerHTML = DATA.hotDests.map(function (d) {
+      return '<button type="button" class="hot-chip' + (d === '东京' ? ' is-on' : '') + '">' + d + '</button>';
+    }).join('');
+  }
+  function getBudget() {
+    var on = document.querySelector('#gen-budget .is-on');
+    return on ? on.getAttribute('data-v') : '舒适';
+  }
+  function runGenerate() {
+    var dest = $('#gen-dest').value.trim() || '东京';
+    var budget = getBudget();
+    var date = $('#gen-date').value || '2026-08-20';
+    state.input = { dest: dest, budget: budget, date: date };
+
+    var overlay = $('#gen-overlay');
+    var stepsEl = $('#gen-steps');
+    stepsEl.innerHTML = '';
+    var steps = [
+      '识别目的地时区 · ' + dest,
+      '匹配预算档位 · ' + budget,
+      '分析人数 / 人物关系 / 出行偏好',
+      '排入时间轴 · 双时钟校时',
+    ];
+    steps.forEach(function (s, i) {
+      var li = document.createElement('div');
+      li.className = 'gen-step';
+      li.innerHTML = '<span>' + (i + 1) + '</span><b>' + s + '</b>';
+      stepsEl.appendChild(li);
+      setTimeout(function () { li.classList.add('is-done'); }, 300 + i * 420);
+    });
+    var t0 = 300 + steps.length * 420 + 200;
+    setTimeout(function () {
+      stepsEl.insertAdjacentHTML('beforeend',
+        '<div class="gen-done">✅ 已生成《' + dest + '攻略 · ' + budget + '游》</div>');
+    }, t0);
+    overlay.classList.add('is-open');
+    setTimeout(function () {
+      overlay.classList.remove('is-open');
+      goTo(1); // 跳到第一个结果页
+    }, t0 + 1300);
   }
 
   /* ---------------- S2 时区识别 ---------------- */
@@ -317,6 +364,7 @@
     titles = screens.map(function (s) { return s.getAttribute('data-title'); });
 
     renderReviewWall();
+    renderGenHot();
     renderTzSelector();
     renderTimeline();
     renderClock();
@@ -334,8 +382,23 @@
       b.addEventListener('click', function () { goTo(cur + 1); });
     });
     document.addEventListener('keydown', function (e) {
+      if ($('#gen-overlay').classList.contains('is-open')) return;
       if (e.key === 'ArrowRight') goTo(cur + 1);
       if (e.key === 'ArrowLeft') goTo(cur - 1);
+    });
+
+    // S1 生成入口
+    $('#btn-generate').addEventListener('click', runGenerate);
+    $('#gen-hot').addEventListener('click', function (e) {
+      var c = e.target.closest('.hot-chip');
+      if (!c) return;
+      $('#gen-dest').value = c.textContent;
+      $$('.hot-chip').forEach(function (x) { x.classList.toggle('is-on', x === c); });
+    });
+    $('#gen-budget').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-v]');
+      if (!b) return;
+      $$('#gen-budget button').forEach(function (x) { x.classList.toggle('is-on', x === b); });
     });
 
     // S3 日签切换
