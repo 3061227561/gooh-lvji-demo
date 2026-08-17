@@ -170,26 +170,61 @@
     var d = new Date();
     $('#clock-dest').textContent = fTokyo.format(d);
     $('#clock-home').textContent = fBeijing.format(d);
+    renderNowLine(); // 「现在」时刻线随时钟每秒更新
   }
 
   function renderTimeline() {
     var days = DATA.trip.days;
+    var day = days[activeDay - 1];
     $('#trip-meta').textContent = DATA.trip.title + ' · ' + DATA.trip.range;
     $('#day-tabs').innerHTML = days.map(function (d) {
       return '<button class="day-tab' + (d.day === activeDay ? ' is-active' : '') + '" data-day="' + d.day + '">' +
         '<b>D' + d.day + '</b>' +
         '<span class="day-label">' + d.label + '</span>' +
         '<span class="day-note">' + d.note + '</span>' +
+        (d.tzNote ? '<span class="chip chip-tz">时差衔接</span>' : '') +
       '</button>';
     }).join('');
-    $('#day-panel').innerHTML = days[activeDay - 1].events.map(eventCard).join('');
+    $('#day-panel').innerHTML =
+      (day.tzNote ? '<div class="tz-banner">🌗 ' + day.tzNote + '</div>' : '') +
+      day.events.map(eventCard).join('');
+    renderNowLine();
+  }
+
+  /* 当前东京时刻（分钟） */
+  function tokyoNowMin() {
+    var p = fTokyo.format(new Date()).split(':');
+    return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+  }
+  /* 「现在」时刻线：演示锚定 D1（正在发生的「今天」），随实时时钟移动 */
+  function renderNowLine() {
+    var panel = $('#day-panel');
+    panel.querySelectorAll('.now-line').forEach(function (x) { x.remove(); });
+    if (activeDay !== 1) return; // 演示锚定 D1，保证任何时候走查都能看到「现在」线
+    var evs = DATA.trip.days[0].events;
+    var nowMin = tokyoNowMin();
+    var idx = 0;
+    while (idx < evs.length && timeToMin(evs[idx].local) < nowMin) idx++;
+    var line = document.createElement('div');
+    line.className = 'now-line';
+    line.innerHTML = '<span class="now-tag">● 现在 · 东京 ' +
+      String(Math.floor(nowMin / 60)).padStart(2, '0') + ':' + String(nowMin % 60).padStart(2, '0') + '</span>';
+    var refs = panel.querySelectorAll('.evt');
+    panel.insertBefore(line, refs[idx] || null);
   }
   function eventCard(e) {
     var home = toHome(e.local);
     var tagCls = e.isNew ? 'chip-ai' : 'chip-tag';
     var okText = e.verified ? '✓ 已确认' : '⏳ 待确认';
     var okCls = e.verified ? 'chip-ok' : 'chip-pending';
-    return '<article class="evt' + (e.isNew ? ' is-new' : '') + '">' +
+    var metro = e.metro
+      ? '<div class="evt-metro">🚇 ' + e.metro.line + ' · 首班 ' + e.metro.first +
+        ' · 末班 ' + e.metro.last + (e.metro.transfer ? ' · <b>' + e.metro.transfer + '</b>' : '') + '</div>'
+      : '';
+    var note = e.note
+      ? '<div class="evt-note" hidden>' + (e.isNew ? '<span class="note-tag">AI 推荐</span> ' : '') + e.note + '</div>'
+      : '';
+    return '<article class="evt' + (e.isNew ? ' is-new' : '') + (e.note ? ' has-note' : '') + '">' +
       '<div class="evt-time">' +
         '<div class="t-local">' + e.local + '</div>' +
         '<div class="t-home">北京 ' + home + '</div>' +
@@ -201,7 +236,10 @@
           (e.transit && e.transit !== '-' ? '<span>🚇 ' + e.transit + '</span>' : '') +
           (e.tag ? '<span class="chip ' + tagCls + '">' + e.tag + '</span>' : '') +
           '<span class="chip ' + okCls + '">' + okText + '</span>' +
+          (e.note ? '<span class="note-hint">💬 点开看备注</span>' : '') +
         '</div>' +
+        metro +
+        note +
       '</div>' +
     '</article>';
   }
@@ -418,6 +456,16 @@
       if (!t) return;
       activeDay = parseInt(t.getAttribute('data-day'), 10);
       renderTimeline();
+    });
+
+    // S3 行程备注展开（点击卡片）
+    $('#day-panel').addEventListener('click', function (e) {
+      var evt = e.target.closest('.evt');
+      if (!evt || !evt.classList.contains('has-note')) return;
+      var note = evt.querySelector('.evt-note');
+      if (!note) return;
+      note.hidden = !note.hidden;
+      evt.classList.toggle('is-open', !note.hidden);
     });
 
     // S4 AI
