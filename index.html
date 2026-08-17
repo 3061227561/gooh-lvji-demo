@@ -14,12 +14,20 @@
     <div class="brand">
       Gooh旅记<span class="brand-badge">改进版 Demo</span>
     </div>
-    <div class="header-title" id="screen-title">1 / 6 · 认识产品 · 差评与洞察</div>
+    <div class="header-title" id="screen-title">1 / 6 · 懒人攻略生成器</div>
     <button class="btn-ghost" id="btn-restart" title="回到第 1 屏">↺ 重新开始</button>
   </header>
 
   <!-- ============ 走查舞台 ============ -->
   <main id="stage">
+
+    <!-- 生成结果概览条：S2–S6 顶部 sticky（由 app.js 控制显隐） -->
+    <div class="gen-summary" id="gen-summary" aria-hidden="true">
+      <div class="gs-meta" id="gen-summary-meta"></div>
+      <div class="gs-actions">
+        <button class="btn-ghost btn-sm" id="btn-regenerate" title="回第 1 屏重新输入">↺ 重新生成</button>
+      </div>
+    </div>
 
     <!-- ===== S1 首页：懒人攻略生成器（输入 → 生成） ===== -->
     <section class="screen is-active" data-title="懒人攻略生成器 · 输入与生成">
@@ -54,13 +62,13 @@
       </div>
     </section>
 
-    <!-- ===== S2 创建行程：时区安全 ===== -->
-    <section class="screen" data-title="创建行程 · 时区安全">
+    <!-- ===== S2 生成结果 · 时区安全 ===== -->
+    <section class="screen" data-title="生成结果 · 时区安全">
       <div class="container split">
         <div class="col-form">
-          <div class="eyebrow">STEP 01 · 创建行程</div>
-          <h2>目的地，先说清楚「几点」</h2>
-          <p class="lead">行程规划前，先把时区这件事摆在桌面上——这是全部信任的地基。</p>
+          <div class="eyebrow">生成结果 · 时区安全</div>
+          <h2>时区，生成时已替你锁定</h2>
+          <p class="lead">这份攻略在生成时，已自动识别目的地与家乡的时差。时区是全部信任的地基——先把它摆在桌面上。</p>
 
           <div class="form-card card">
             <label class="field">
@@ -79,8 +87,8 @@
               <span>我的时区（家乡）</span>
               <div class="field-static">北京 · UTC+8</div>
             </label>
-            <p class="field-hint">⚠️ 演示数据主线固定为东京 5 日；切换目的地仅演示「时区识别」机制。</p>
-            <button class="btn-primary btn-block" id="btn-s2-next" data-next>生成行程时间轴 →</button>
+            <p class="field-hint">⚠️ 演示主线固定东京 5 日；切换目的地可看 Agent 如何识别不同时区。</p>
+            <button class="btn-primary btn-block" id="btn-s2-next" data-next>查看生成的逐日排程 →</button>
           </div>
         </div>
 
@@ -93,11 +101,11 @@
     </section>
 
     <!-- ===== S3 时间轴排程：双时钟签名功能（英雄屏） ===== -->
-    <section class="screen" data-title="时间轴排程 · 双时钟签名功能">
+    <section class="screen" data-title="生成结果 · 时间轴排程">
       <div class="container wide">
         <div class="timeline-head card">
           <div class="tl-left">
-            <div class="eyebrow">STEP 02 · 逐日排程</div>
+            <div class="eyebrow">生成结果 · 逐日排程</div>
             <h2 id="trip-meta"></h2>
             <p class="card-sub">每条行程，同时告诉你<b>「当地几点」</b>和<b>「家里几点」</b></p>
           </div>
@@ -128,10 +136,10 @@
     </section>
 
     <!-- ===== S4 AI 行程快进：只做脏活不做决策 ===== -->
-    <section class="screen" data-title="AI 行程快进 · 只做脏活不做决策">
+    <section class="screen" data-title="生成结果 · AI 行程快进">
       <div class="container split">
         <div class="col-form">
-          <div class="eyebrow">STEP 03 · 智能录入</div>
+          <div class="eyebrow">生成结果 · AI 录入</div>
           <h2>AI 不做决策，<br />只把乱信息变成行程</h2>
           <p class="lead">用户骂「AI 鸡肋」，是因为 AI 替他做决定。我们把 AI 关回笼子里，让它只干脏活。</p>
 
@@ -162,9 +170,9 @@
     </section>
 
     <!-- ===== S5 数据可信：里程不缩水 ===== -->
-    <section class="screen" data-title="数据可信 · 里程不缩水">
+    <section class="screen" data-title="生成结果 · 数据可信">
       <div class="container wide">
-        <div class="eyebrow">STEP 04 · 复核信任</div>
+        <div class="eyebrow">生成结果 · 数据可信</div>
         <h2>数据可以被系统吃掉，<br />但不能被「假装没发生」</h2>
         <p class="lead">手机省电模式会在后台静默关掉定位——里程悄悄缩水，用户看到的是「假数据」，丢的是对产品的信任。</p>
 
@@ -198,9 +206,9 @@
     </section>
 
     <!-- ===== S6 分享交付 + 定价策略 ===== -->
-    <section class="screen" data-title="分享交付 · 定价策略">
+    <section class="screen" data-title="生成结果 · 分享交付">
       <div class="container wide">
-        <div class="eyebrow">STEP 05 · 分享交付</div>
+        <div class="eyebrow">生成结果 · 分享交付</div>
         <h2>一份拿得出手的行程，<br />一套说得清楚的收费</h2>
 
         <div class="deliver-grid">
@@ -221,6 +229,15 @@
             </div>
             <div class="card why-card" id="pricing-why"></div>
           </div>
+        </div>
+
+        <!-- 证据链：这 3 个重构，来自哪些差评（KANO 归类） -->
+        <div class="review-cred card">
+          <div class="eyebrow">证据链 · KANO 归类</div>
+          <h3>这 3 个重构，来自这些差评</h3>
+          <p class="card-sub">3,200 条差评 → 5 类高频痛点 → KANO 判断该不该做 → 3 个核心重构。</p>
+          <div class="review-wall" id="review-wall"></div>
+          <div class="kano-legend" id="kano-legend"></div>
         </div>
 
         <div class="finish card">

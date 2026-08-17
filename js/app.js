@@ -47,6 +47,13 @@
   var activeDay = 1;
   var state = { aiParsed: false, aiMerged: false, recorded: false, input: null };
 
+  /* ---------------- 生成结果概览条（S2–S6 顶部） ---------------- */
+  function renderGenSummary() {
+    var s = state.input || { dest: '东京', budget: '舒适' };
+    $('#gen-summary-meta').innerHTML =
+      '📍 生成结果 · <b>' + s.dest + '</b> · ' + s.budget + ' · ' + DATA.trip.range;
+  }
+
   /* ---------------- 走查状态机 ---------------- */
   function goTo(i) {
     cur = Math.max(0, Math.min(screens.length - 1, i));
@@ -58,6 +65,9 @@
     $('#btn-prev').disabled = cur === 0;
     $('#btn-next').disabled = cur === screens.length - 1;
     renderDots();
+    var summary = $('#gen-summary');
+    summary.classList.toggle('is-visible', cur >= 1);
+    if (cur >= 1) renderGenSummary();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function renderDots() {
@@ -66,10 +76,10 @@
     }).join('');
   }
 
-  /* ---------------- S1 差评墙 ---------------- */
+  /* ---------------- S6 差评墙（证据链，结果页底部收尾） ---------------- */
   function renderReviewWall() {
     var wall = $('#review-wall');
-    if (!wall) return; // 差评墙按新定位移到结果页底部（下一步实现）
+    if (!wall) return;
     wall.innerHTML = DATA.reviews.map(function (r) {
       return '<article class="review">' +
         '<div class="review-top">' +
@@ -378,6 +388,7 @@
     $('#btn-prev').addEventListener('click', function () { goTo(cur - 1); });
     $('#btn-restart').addEventListener('click', restart);
     $('#btn-finish').addEventListener('click', restart);
+    $('#btn-regenerate').addEventListener('click', restart);
     $$('[data-next]').forEach(function (b) {
       b.addEventListener('click', function () { goTo(cur + 1); });
     });

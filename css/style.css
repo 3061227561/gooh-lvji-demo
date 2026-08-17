@@ -111,6 +111,7 @@ b { font-weight: 700; }
 .btn-ghost:hover:not(:disabled) { border-color: var(--faint); }
 .btn-ghost:disabled { opacity: .4; cursor: not-allowed; }
 .btn-lg { padding: 15px 30px; font-size: 16px; border-radius: 14px; }
+.btn-sm { padding: 7px 14px; font-size: 13px; border-radius: 10px; }
 .btn-block { width: 100%; }
 
 /* ---------- 屏切换 ---------- */
@@ -154,7 +155,7 @@ h3 { font-size: 17px; font-weight: 700; }
 }
 
 /* ---------- S1 Hero ---------- */
-#stage .screen:first-child {
+#stage .screen:first-of-type {
   min-height: calc(100vh - 64px);
   display: none;
   background:
@@ -162,7 +163,7 @@ h3 { font-size: 17px; font-weight: 700; }
     linear-gradient(160deg, var(--navy-900) 0%, var(--navy-800) 100%);
   color: #fff;
 }
-#stage .screen:first-child.is-active { display: block; }
+#stage .screen:first-of-type.is-active { display: block; }
 .hero { display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; align-items: center; padding-top: 64px; }
 .hero h1 { color: #fff; }
 .hero .hl { color: var(--accent); }
@@ -199,8 +200,7 @@ h3 { font-size: 17px; font-weight: 700; }
 .k-perf    { background: var(--blue-soft); color: var(--blue); }
 .k-attract { background: var(--purple-soft); color: var(--purple); }
 .k-reverse { background: var(--amber-soft); color: #b97b1d; }
-.kano-legend { display: flex; flex-wrap: wrap; gap: 8px; }
-.kano-legend .kano { background: rgba(255, 255, 255, .08); color: #e6edf7; border: 1px solid rgba(255,255,255,.15); }
+.kano-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 
 /* ---------- 通用标签 chip ---------- */
 .chip {
@@ -243,7 +243,7 @@ h3 { font-size: 17px; font-weight: 700; }
   font-size: 15px;
 }
 .field-hint { font-size: 12px; color: var(--faint); }
-.tz-card { padding: 22px; position: sticky; top: 84px; }
+.tz-card { padding: 22px; position: sticky; top: 124px; }
 .tz-ok {
   display: inline-block;
   background: var(--green-soft);
@@ -514,6 +514,8 @@ h3 { font-size: 17px; font-weight: 700; }
 .why:last-child { border-bottom: none; }
 .why b { font-size: 14px; color: var(--navy-800); }
 .why p { font-size: 13px; color: var(--muted); margin-top: 3px; line-height: 1.6; }
+.review-cred { padding: 24px; margin-top: 26px; }
+.review-cred h3 { margin-bottom: 4px; }
 .finish { margin-top: 26px; padding: 26px; text-align: center; }
 .finish h3 { font-size: 22px; margin-bottom: 8px; }
 .finish p { color: var(--muted); font-size: 14px; margin-bottom: 18px; }
@@ -541,6 +543,26 @@ h3 { font-size: 17px; font-weight: 700; }
 .walk-label b { color: var(--ink); font-size: 15px; }
 .walk-controls { display: flex; gap: 10px; }
 .walk-controls .btn-primary, .walk-controls .btn-ghost { padding: 9px 18px; font-size: 14px; }
+
+/* ---------- 生成结果概览条（S2–S6 顶部） ---------- */
+.gen-summary {
+  position: sticky;
+  top: 64px;
+  z-index: 40;
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 24px;
+  background: rgba(255, 255, 255, .94);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 2px 10px rgba(20, 33, 61, .06);
+}
+.gen-summary.is-visible { display: flex; }
+.gen-summary .gs-meta { font-size: 14px; font-weight: 600; color: var(--muted); }
+.gen-summary .gs-meta b { color: var(--navy-900); }
+.gen-summary .gs-actions { flex: none; }
 
 /* ---------- S1 懒人攻略生成器（输入 → 生成） ---------- */
 .gen-wrap {
