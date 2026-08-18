@@ -412,6 +412,23 @@ h3 { font-size: 17px; font-weight: 700; }
   margin-bottom: 10px;
 }
 
+/* ---------- P0 实时查询结果面板（任意城市） ---------- */
+.live-panel { margin-bottom: 14px; padding: 16px 18px; }
+.live-panel.is-live { border-color: #bfe3d0; }
+.live-panel.is-fallback { background: var(--amber-soft); border-color: #f2ddb4; }
+.live-head { font-size: 14px; font-weight: 700; color: var(--ink); }
+.live-head b { color: var(--navy-900); }
+.live-panel.is-fallback .live-head, .live-panel.is-fallback .live-weather { color: #8a6216; }
+.live-weather { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.6; }
+.live-coords { font-size: 12.5px; color: var(--faint); margin-top: 4px; }
+.live-places-title { font-size: 12.5px; font-weight: 700; color: var(--navy-800); margin-top: 12px; }
+.live-places { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.live-place { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: 12.5px; line-height: 1.5; }
+.live-place b { color: var(--navy-900); }
+.live-place span { color: var(--amber); margin-left: 6px; font-weight: 700; }
+.live-desc { display: block; color: var(--muted); margin-top: 2px; margin-left: 0 !important; font-weight: 400; }
+.live-empty { font-size: 12.5px; color: var(--faint); margin-top: 8px; }
+
 .evt.has-note { cursor: pointer; }
 .evt.has-note:hover { border-color: #ffd9c4; }
 .evt.is-open { border-left-color: var(--accent); }

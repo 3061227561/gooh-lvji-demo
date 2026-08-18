@@ -112,6 +112,7 @@
     var budget = getBudget();
     var date = $('#gen-date').value || '2026-08-20';
     state.input = { dest: dest, budget: budget, date: date };
+    state.live = null; // 实时查询结果，失败/无 key 时保持 null（走回退）
 
     var overlay = $('#gen-overlay');
     var stepsEl = $('#gen-steps');
@@ -135,10 +136,79 @@
         '<div class="gen-done">✅ 已生成《' + dest + '攻略 · ' + budget + '游》</div>');
     }, t0);
     overlay.classList.add('is-open');
+
+    // 实时查询（P0 打通链路）：异步，不阻塞遮罩动画；无 key / 失败自动回退本地数据
+    renderLivePanel('loading');
+    queryCity(dest).then(function (live) {
+      state.live = live;
+      renderLivePanel(live);
+    });
+
     setTimeout(function () {
       overlay.classList.remove('is-open');
       goTo(1); // 跳到第一个结果页
     }, t0 + 1300);
+  }
+
+  /* ---------------- P0 实时查询（任意城市） ---------------- */
+  function queryCity(name) {
+    var base = window.CONFIG && window.CONFIG.API_BASE;
+    if (!base || base.indexOf('你的') > -1) return Promise.resolve(null); // 未配置 → 回退
+    var url = base.replace(/\/+$/, '') + '/api?name=' + encodeURIComponent(name);
+    return fetch(url)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { return d && d.ok ? d : null; })
+      .catch(function () { return null; });
+  }
+
+  function renderLivePanel(live) {
+    var panel = $('#live-panel');
+    if (!panel) return;
+    if (!live) { // 未查询 → 隐藏
+      panel.style.display = 'none';
+      panel.className = 'card live-panel';
+      return;
+    }
+    panel.style.display = '';
+    if (live === 'loading') {
+      panel.className = 'card live-panel is-fallback';
+      panel.innerHTML = '<div class="live-head">📡 正在查询 <b>' +
+        (state.input ? state.input.dest : '该城市') + '</b> 的实时数据…</div>';
+      return;
+    }
+    if (!live.ok) {
+      panel.className = 'card live-panel is-fallback';
+      panel.innerHTML = '<div class="live-head">📡 实时查询不可用</div>' +
+        '<div class="live-weather">' + (live.message || live.error || '未配置 API key / 网络异常') +
+        ' · 已回退本地演示数据</div>';
+      return;
+    }
+    panel.className = 'card live-panel is-live';
+    var html = '<div class="live-head">🎯 实时查询 · <b>' + live.city + '</b></div>';
+    var w = live.weather;
+    if (w && !w.error) {
+      var tz = w.tz_offset != null
+        ? 'UTC' + (w.tz_offset >= 0 ? '+' : '') + (w.tz_offset / 3600) : '';
+      var diff = w.tz_offset != null
+        ? ' · 与北京 ' + ((w.tz_offset - 28800) / 3600 >= 0 ? '+' : '') + ((w.tz_offset - 28800) / 3600) + ' 小时' : '';
+      html += '<div class="live-weather">🌤 ' + w.desc + ' · ' + w.temp + '℃' +
+        (tz ? ' · ' + tz : '') + diff + '</div>';
+    } else if (w && w.error) {
+      html += '<div class="live-weather">天气获取失败：' + w.error + '</div>';
+    }
+    if (live.coords) {
+      html += '<div class="live-coords">📍 ' + live.coords.lat.toFixed(4) + ', ' + live.coords.lon.toFixed(4) + '</div>';
+    }
+    if (live.places && live.places.length) {
+      html += '<div class="live-places-title">🗺 已从 OpenTripMap 查到 ' + live.places.length + ' 个景点：</div>' +
+        '<div class="live-places">' + live.places.map(function (p) {
+          return '<div class="live-place"><b>' + p.name + '</b><span>★' + p.rate + '</span>' +
+            (p.desc ? '<span class="live-desc">' + p.desc + '</span>' : '') + '</div>';
+        }).join('') + '</div>';
+    } else {
+      html += '<div class="live-empty">未查到景点数据（可尝试英文城市名）</div>';
+    }
+    panel.innerHTML = html;
   }
 
   /* ---------------- S2 时区识别 ---------------- */
@@ -396,10 +466,12 @@
     }
     state.recorded = false;
     DATA.mileage.lost.recorded = false;
+    state.live = null;
     activeDay = 1;
     renderTimeline();
     renderAIStatic();
     renderMileage();
+    renderLivePanel();
     goTo(0);
   }
 
@@ -420,6 +492,7 @@
     renderAIStatic();
     renderMileage();
     renderPricingShare();
+    renderLivePanel(); // 初始隐藏；runGenerate 触发真实查询后显示
 
     // 走查导航
     $('#btn-next').addEventListener('click', function () { goTo(cur + 1); });
