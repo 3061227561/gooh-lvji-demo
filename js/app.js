@@ -153,18 +153,21 @@
   /* ---------------- P0 实时查询（任意城市） ---------------- */
   function queryCity(name) {
     var base = window.CONFIG && window.CONFIG.API_BASE;
-    if (!base || base.indexOf('你的') > -1) return Promise.resolve(null); // 未配置 → 回退
+    if (!base || base.indexOf('你的') > -1) return Promise.resolve({ skipped: true }); // 未配置 → 不打扰
     var url = base.replace(/\/+$/, '') + '/api?name=' + encodeURIComponent(name);
     return fetch(url)
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { return d && d.ok ? d : null; })
-      .catch(function () { return null; });
+      .then(function (r) { return r.ok ? r.json() : { ok: false, message: '后端 HTTP ' + r.status }; })
+      .then(function (d) {
+        if (!d) return { ok: false, message: '后端返回异常' };
+        return d.ok ? d : { ok: false, message: d.message || d.error || '后端查询失败' };
+      })
+      .catch(function () { return { ok: false, message: '无法连接后端，请检查网络' }; });
   }
 
   function renderLivePanel(live) {
     var panel = $('#live-panel');
     if (!panel) return;
-    if (!live) { // 未查询 → 隐藏
+    if (!live || live.skipped) { // 未查询 / 未配置 → 隐藏
       panel.style.display = 'none';
       panel.className = 'card live-panel';
       return;

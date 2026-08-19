@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler
 
-TIMEOUT = 8
+TIMEOUT = 6  # Vercel 免费层函数有执行时长上限，单请求超时给紧凑些
 OWM_VERSIONS = ('3.0', '2.5')  # 新 key 只能 3.0，老 key 仍可用 2.5，故 3.0 优先
 
 
