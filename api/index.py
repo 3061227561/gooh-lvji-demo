@@ -28,8 +28,9 @@ from http.server import BaseHTTPRequestHandler
 
 TIMEOUT = 8
 OWM_VERSIONS = ('3.0', '2.5')  # 新 key 只能 3.0，老 key 仍可用 2.5，故 3.0 优先
-# 按优先级尝试的 Gemini 模型（2026-08 起 2.5-flash 为稳定免费模型，2.0/1.5 已退役）
-GEMINI_MODELS = ('gemini-2.5-flash', 'gemini-2.5-flash-lite')
+# 按优先级尝试的 Gemini 模型（2026-08：新用户 AQ. key 只能用 3.x，2.5/2.0/1.5 均不可用；
+# 若以后模型再退役，看 places_error 里 Google 提示的新模型名替换即可）
+GEMINI_MODELS = ('gemini-3.6-flash', 'gemini-3.5-flash-lite')
 
 
 def _key(name):
