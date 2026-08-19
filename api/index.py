@@ -96,30 +96,59 @@ def _weather(name, coords, key):
 
 # ---------------- Gemini（生成景点） ----------------
 def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
-    """调用 Gemini 生成内容并返回原始文本（按优先级尝试多个模型，首个成功即返回）。"""
-    payload = {
+    """调用 Gemini 生成内容并返回原始文本。
+
+    按优先级尝试，首个成功即返回：
+      1. OpenAI 兼容端点（v1beta/openai/chat/completions，Bearer 认证，官方长期稳定）
+      2. 原生 generateContent（x-goog-api-key header 认证）
+      3. 原生 generateContent（?key= query 认证）
+    模型名也按 GEMINI_MODELS 依次兜底。
+    """
+    errors = []
+
+    # 1) OpenAI 兼容端点
+    url1 = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+    payload1 = {
+        'model': GEMINI_MODELS[0],
+        'messages': [{'role': 'user', 'content': prompt}],
+        'temperature': 0.7,
+        'max_tokens': max_tokens,
+    }
+    try:
+        req = urllib.request.Request(
+            url1, data=json.dumps(payload1).encode('utf-8'),
+            headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read().decode('utf-8'))
+        return data['choices'][0]['message']['content']
+    except Exception as e:  # noqa: BLE001
+        errors.append('openai端点: ' + str(e))
+
+    # 2/3) 原生 generateContent（header / query 两种认证 × 多个模型）
+    payload2 = {
         'contents': [{'parts': [{'text': prompt}]}],
         'generationConfig': {'temperature': 0.7, 'maxOutputTokens': max_tokens},
     }
-    body = json.dumps(payload).encode('utf-8')
-    errors = []
+    body = json.dumps(payload2).encode('utf-8')
     for model in GEMINI_MODELS:
-        url = ('https://generativelanguage.googleapis.com/v1beta/models/' +
-               model + ':generateContent')
-        req = urllib.request.Request(
-            url, data=body,
-            headers={'Content-Type': 'application/json', 'x-goog-api-key': key})
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                data = json.loads(r.read().decode('utf-8'))
-            parts = data.get('candidates', [{}])[0].get('content', {}).get('parts', [])
-            if parts:
-                return parts[0].get('text', '')
-            errors.append(model + ': 空响应')
-        except urllib.error.HTTPError as e:
-            errors.append(model + ': HTTP ' + str(e.code))
-        except Exception as e:  # noqa: BLE001
-            errors.append(model + ': ' + str(e))
+        base = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent'
+        for auth in ('header', 'query'):
+            url = base
+            headers = {'Content-Type': 'application/json'}
+            if auth == 'header':
+                headers['x-goog-api-key'] = key
+            else:
+                url += '?key=' + urllib.parse.quote(key)
+            try:
+                req = urllib.request.Request(url, data=body, headers=headers)
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    d = json.loads(r.read().decode('utf-8'))
+                parts = d.get('candidates', [{}])[0].get('content', {}).get('parts', [])
+                if parts:
+                    return parts[0].get('text', '')
+                errors.append(model + '/' + auth + ': 空响应')
+            except Exception as e:  # noqa: BLE001
+                errors.append(model + '/' + auth + ': ' + str(e))
     raise Exception('; '.join(errors) or 'Gemini 调用失败')
 
 
