@@ -11,6 +11,12 @@ Gooh旅记 · 任意城市查询 —— Vercel Python Serverless 函数
   2. OpenWeatherMap：取该城市实时天气 + UTC 时区偏移（保证双时钟正确）
   3. 无 key / 查询失败：返回 {ok:false, ...}，前端据此回退本地演示数据（双模式）
 
+2026-08-19 修复（天气 404）：
+  - OpenWeatherMap 端点 3.0 优先、2.5 兜底：2025 年后新注册的 key 只能用 3.0
+    端点，老 2.5 端点对新 key 返回 404 Not Found。
+  - 天气优先按坐标查询（坐标来自 OpenTripMap geocode → OpenWeather geocoding），
+    彻底绕开「中文城市名查不到」导致的 404。
+
 部署：Vercel 自动识别 api/ 目录，无第三方依赖（纯标准库）。
 环境变量（Vercel Settings → Environment Variables）：
   OPEN_TRIP_MAP_KEY     https://opentripmap.io   （免费 1000 次/天）
@@ -19,11 +25,13 @@ Gooh旅记 · 任意城市查询 —— Vercel Python Serverless 函数
 """
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler
 
 TIMEOUT = 8
+OWM_VERSIONS = ('3.0', '2.5')  # 新 key 只能 3.0，老 key 仍可用 2.5，故 3.0 优先
 
 
 def _key(name):
@@ -85,19 +93,53 @@ def _places_around(lon, lat, key, radius=5000, limit=12):
 
 
 # ---------------- OpenWeatherMap ----------------
-def _weather(city, key):
-    """城市名 → 实时天气 + UTC 时区偏移（秒）"""
-    url = 'https://api.openweathermap.org/data/2.5/weather?' + urllib.parse.urlencode(
-        {'q': city, 'units': 'metric', 'lang': 'zh_cn', 'appid': key})
-    data = _http_get(url)
-    if data.get('cod') != 200:
-        return None
-    return {
-        'temp': round(data['main']['temp']),
-        'desc': (data['weather'][0].get('description') or ''),
-        'tz_offset': data.get('timezone', 0),   # 秒；北京 UTC+8 = 28800
-        'country': (data.get('sys') or {}).get('country', ''),
-    }
+def _owm_geocode(name, key):
+    """城市名 → 坐标（OpenWeather 自身 geocoding，独立于 OpenTripMap）"""
+    url = 'https://api.openweathermap.org/geo/1.0/direct?' + urllib.parse.urlencode(
+        {'q': name, 'limit': 1, 'appid': key})
+    try:
+        data = _http_get(url)
+        if data:
+            return {'lat': data[0]['lat'], 'lon': data[0]['lon']}
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _weather(name, coords, key):
+    """实时天气 + UTC 时区偏移（秒）。
+
+    查法优先级：坐标（来自 OpenTripMap geocode）
+              → OpenWeather 自身 geocoding
+              → 城市名 q（仅兜底，中文名可能查不到）。
+    端点：3.0 优先、2.5 兜底。
+    """
+    if coords:
+        params = {'lat': coords['lat'], 'lon': coords['lon']}
+    else:
+        g = _owm_geocode(name, key)
+        params = {'lat': g['lat'], 'lon': g['lon']} if g else {'q': name}
+
+    errors = []
+    for ver in OWM_VERSIONS:
+        url = ('https://api.openweathermap.org/data/' + ver + '/weather?' +
+               urllib.parse.urlencode(dict(params, appid=key, units='metric', lang='zh_cn')))
+        try:
+            data = _http_get(url)
+            if data.get('cod') != 200:
+                errors.append(ver + ': ' + str(data.get('cod')) + ' ' + str(data.get('message', '')))
+                continue
+            return {
+                'temp': round(data['main']['temp']),
+                'desc': (data['weather'][0].get('description') or ''),
+                'tz_offset': data.get('timezone', 0),   # 秒；北京 UTC+8 = 28800
+                'country': (data.get('sys') or {}).get('country', ''),
+            }
+        except urllib.error.HTTPError as e:
+            errors.append(ver + ': HTTP ' + str(e.code))
+        except Exception as e:  # noqa: BLE001
+            errors.append(ver + ': ' + str(e))
+    raise Exception('; '.join(errors) or '天气查询失败')
 
 
 # ---------------- 入口 ----------------
@@ -113,25 +155,33 @@ def _run(params):
                 'message': '后端未配置 API key，已回退本地演示数据'}
 
     result = {'ok': True, 'city': name}
+    geo = None
 
-    # 天气 + 时区（双时钟依赖）
-    if owm:
-        try:
-            w = _weather(name, owm)
-            result['weather'] = w or {'error': '城市天气未找到'}
-        except Exception as e:  # noqa: BLE001
-            result['weather'] = {'error': str(e)}
-
-    # 坐标 + 景点
+    # 坐标（供天气 + 景点共用）
     if otm:
         try:
             geo = _geocode(name, otm)
             if geo:
                 result['coords'] = {'lon': geo['lon'], 'lat': geo['lat']}
+            else:
+                result['geo_note'] = 'OpenTripMap 未找到该城市，可尝试英文名'
+        except Exception as e:  # noqa: BLE001
+            result['geo_error'] = str(e)
+
+    # 天气 + 时区（优先坐标，保证任意城市名都能查准；3.0→2.5 端点兜底）
+    if owm:
+        try:
+            result['weather'] = _weather(name, result.get('coords'), owm)
+        except Exception as e:  # noqa: BLE001
+            result['weather'] = {'error': str(e)}
+
+    # 景点
+    if otm:
+        try:
+            if geo:
                 result['places'] = _places_around(geo['lon'], geo['lat'], otm)
             else:
                 result['places'] = []
-                result['geo_note'] = 'OpenTripMap 未找到该城市，可尝试英文名'
         except Exception as e:  # noqa: BLE001
             result['places'] = []
             result['places_error'] = str(e)
