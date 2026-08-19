@@ -203,13 +203,15 @@
       html += '<div class="live-coords">📍 ' + live.coords.lat.toFixed(4) + ', ' + live.coords.lon.toFixed(4) + '</div>';
     }
     if (live.places && live.places.length) {
-      html += '<div class="live-places-title">🗺 已从 OpenTripMap 查到 ' + live.places.length + ' 个景点：</div>' +
+      html += '<div class="live-places-title">🗺 已查到 ' + live.places.length + ' 个景点：</div>' +
         '<div class="live-places">' + live.places.map(function (p) {
-          return '<div class="live-place"><b>' + p.name + '</b><span>★' + p.rate + '</span>' +
+          return '<div class="live-place"><b>' + p.name + '</b>' +
+            (p.rate ? '<span class="live-rate">★' + p.rate + '</span>' : '') +
+            (p.kind && p.kind !== '景点' ? '<span class="live-kind">' + p.kind + '</span>' : '') +
             (p.desc ? '<span class="live-desc">' + p.desc + '</span>' : '') + '</div>';
         }).join('') + '</div>';
     } else {
-      html += '<div class="live-empty">未查到景点数据（可尝试英文城市名）</div>';
+      html += '<div class="live-empty">暂无景点数据（配置 GEMINI_API_KEY 后可生成）</div>';
     }
     panel.innerHTML = html;
   }

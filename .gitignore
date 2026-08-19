@@ -1,3 +1,6 @@
 /docs/
 __pycache__/
 *.pyc
+/Vercel网址.txt
+/天气key.txt
+/Gemini API.txt

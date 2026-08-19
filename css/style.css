@@ -425,7 +425,18 @@ h3 { font-size: 17px; font-weight: 700; }
 .live-places { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .live-place { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: 12.5px; line-height: 1.5; }
 .live-place b { color: var(--navy-900); }
-.live-place span { color: var(--amber); margin-left: 6px; font-weight: 700; }
+.live-rate { color: var(--amber); margin-left: 6px; font-weight: 700; }
+.live-kind {
+  display: inline-block;
+  color: var(--blue);
+  background: var(--blue-soft);
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: 1px;
+}
 .live-desc { display: block; color: var(--muted); margin-top: 2px; margin-left: 0 !important; font-weight: 400; }
 .live-empty { font-size: 12.5px; color: var(--faint); margin-top: 8px; }
 
