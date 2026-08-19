@@ -28,7 +28,8 @@ from http.server import BaseHTTPRequestHandler
 
 TIMEOUT = 8
 OWM_VERSIONS = ('3.0', '2.5')  # 新 key 只能 3.0，老 key 仍可用 2.5，故 3.0 优先
-GEMINI_MODEL = 'gemini-2.0-flash'
+# 按优先级尝试的 Gemini 模型（2026-08 起 2.5-flash 为稳定免费模型，2.0/1.5 已退役）
+GEMINI_MODELS = ('gemini-2.5-flash', 'gemini-2.5-flash-lite')
 
 
 def _key(name):
@@ -95,20 +96,31 @@ def _weather(name, coords, key):
 
 # ---------------- Gemini（生成景点） ----------------
 def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
-    """调用 Gemini 生成内容并返回原始文本（v1beta，免费层可用）。"""
-    url = ('https://generativelanguage.googleapis.com/v1beta/models/' +
-           GEMINI_MODEL + ':generateContent')
+    """调用 Gemini 生成内容并返回原始文本（按优先级尝试多个模型，首个成功即返回）。"""
     payload = {
         'contents': [{'parts': [{'text': prompt}]}],
         'generationConfig': {'temperature': 0.7, 'maxOutputTokens': max_tokens},
     }
-    req = urllib.request.Request(
-        url, data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json', 'x-goog-api-key': key})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        data = json.loads(r.read().decode('utf-8'))
-    parts = data.get('candidates', [{}])[0].get('content', {}).get('parts', [])
-    return parts[0].get('text', '') if parts else ''
+    body = json.dumps(payload).encode('utf-8')
+    errors = []
+    for model in GEMINI_MODELS:
+        url = ('https://generativelanguage.googleapis.com/v1beta/models/' +
+               model + ':generateContent')
+        req = urllib.request.Request(
+            url, data=body,
+            headers={'Content-Type': 'application/json', 'x-goog-api-key': key})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = json.loads(r.read().decode('utf-8'))
+            parts = data.get('candidates', [{}])[0].get('content', {}).get('parts', [])
+            if parts:
+                return parts[0].get('text', '')
+            errors.append(model + ': 空响应')
+        except urllib.error.HTTPError as e:
+            errors.append(model + ': HTTP ' + str(e.code))
+        except Exception as e:  # noqa: BLE001
+            errors.append(model + ': ' + str(e))
+    raise Exception('; '.join(errors) or 'Gemini 调用失败')
 
 
 def _extract_json(text):
