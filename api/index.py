@@ -7,15 +7,15 @@ Gooh旅记 · 任意城市查询 —— Vercel Python Serverless 函数
 
 职责：
   1. OpenWeatherMap：城市 → 实时天气 + UTC 时区偏移（保证双时钟正确）
-  2. Gemini（Google AI Studio）：生成该城市景点列表（覆盖全球任意城市，免费）
+  2. 大模型生成该城市景点（任意城市、免费、稳定）：
+     - 优先 智谱 GLM-4-Flash（OpenAI 兼容端点，国内直连免费，推荐）
+     - 兜底 Google Gemini（原生端点，多模型 fallback；2026-08 起新用户 key 只能用 3.x）
   3. 无 key / 失败：返回 {ok:false,...} 或空景点，前端回退（天气+时区仍可用）
-
-2026-08-19 更新：不再依赖 OpenTripMap（其服务器常返回 500、不稳定），
-  景点改由 Gemini 生成；天气与景点用 ThreadPoolExecutor 并行，收敛函数执行时长。
 
 环境变量（Vercel Settings → Environment Variables）：
   OPEN_WEATHER_MAP_KEY  https://openweathermap.org   （免费 1000 次/天）
-  GEMINI_API_KEY        https://aistudio.google.com/apikey（免费 1500 次/天）
+  ZHIPU_API_KEY         https://open.bigmodel.cn    （glm-4-flash 免费，国内直连，推荐）
+  GEMINI_API_KEY        https://aistudio.google.com/apikey（可选，兜底）
 """
 import json
 import os
@@ -28,8 +28,12 @@ from http.server import BaseHTTPRequestHandler
 
 TIMEOUT = 8
 OWM_VERSIONS = ('3.0', '2.5')  # 新 key 只能 3.0，老 key 仍可用 2.5，故 3.0 优先
-# 按优先级尝试的 Gemini 模型（2026-08：新用户 AQ. key 只能用 3.x，2.5/2.0/1.5 均不可用；
-# 若以后模型再退役，看 places_error 里 Google 提示的新模型名替换即可）
+
+# 智谱（OpenAI 兼容端点）
+ZHIPU_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
+ZHIPU_MODEL = 'glm-4-flash'
+
+# Gemini 原生端点，按优先级尝试；若报 model no longer available，按提示换新模型名
 GEMINI_MODELS = ('gemini-3.6-flash', 'gemini-3.5-flash-lite')
 
 
@@ -95,9 +99,69 @@ def _weather(name, coords, key):
     raise Exception('; '.join(errors) or '天气查询失败')
 
 
-# ---------------- Gemini（生成景点） ----------------
+# ---------------- 通用：景点 prompt 与解析 ----------------
+def _places_prompt(city):
+    return (
+        '你是一名旅行攻略助手。请为城市「' + city + '」推荐 8 个值得去的景点，'
+        '用严格 JSON 数组返回，每个元素 3 个字段：'
+        'name 为景点名（中文优先）；kind 为分类（景点/美食/公园/博物馆/购物/夜景，选最贴切的一个）；'
+        'one_line 为一句中文推荐理由，不超过 30 字。'
+        '只输出 JSON 数组，不要 Markdown，不要多余文字。'
+        '示例：[{"name":"浅草寺","kind":"景点","one_line":"东京最古老的寺庙，浅草雷门地标"}]'
+    )
+
+
+def _extract_json(text):
+    """从模型输出中提取 JSON 数组（容忍 ```json 包裹与前后废话）。"""
+    if not text:
+        return []
+    m = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', text, re.S)
+    body = m.group(1) if m else text
+    a, b = body.find('['), body.rfind(']')
+    if a != -1 and b > a:
+        body = body[a:b + 1]
+    try:
+        arr = json.loads(body)
+        return arr if isinstance(arr, list) else []
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _parse_places(text):
+    """把模型返回的 JSON 数组文本规整为景点列表。"""
+    places = []
+    for it in _extract_json(text):
+        nm = (it.get('name') or '').strip()
+        if not nm:
+            continue
+        places.append({
+            'name': nm,
+            'kind': (it.get('kind') or '景点')[:12],
+            'desc': (it.get('one_line') or '').strip()[:80],
+            'rate': 0,
+        })
+    return places
+
+
+# ---------------- 智谱 AI（OpenAI 兼容端点，国内直连免费） ----------------
+def _zhipu_chat(city, key, timeout=15):
+    payload = {
+        'model': ZHIPU_MODEL,
+        'messages': [{'role': 'user', 'content': _places_prompt(city)}],
+        'temperature': 0.7,
+        'max_tokens': 1024,
+    }
+    req = urllib.request.Request(
+        ZHIPU_URL, data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        data = json.loads(r.read().decode('utf-8'))
+    return data['choices'][0]['message']['content']
+
+
+# ---------------- Google Gemini（原生端点，兜底） ----------------
 def _http_err_detail(e):
-    """从 urllib HTTPError 里提取服务端返回的错误信息（便于定位 404 根因）。"""
+    """从 urllib HTTPError 里提取服务端返回的错误信息（便于定位根因）。"""
     try:
         raw = e.read().decode('utf-8')
     except Exception:  # noqa: BLE001
@@ -113,7 +177,7 @@ def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
     """调用 Gemini 生成内容并返回原始文本。
 
     认证顺序（2026-08：Google 已把 key 从 AIza 迁移到 AQ. 新格式）：
-      1. 原生 generateContent（x-goog-api-key header / ?key= query）—— AQ. 与 AIza 均支持，首选
+      1. 原生 generateContent（x-goog-api-key header / ?key= query）—— AQ. 与 AIza 均支持
       2. OpenAI 兼容端点（Bearer）—— 仅旧 AIza key 可用，AQ. key 在此路径会报错，仅兜底
     模型名按 GEMINI_MODELS 依次尝试。错误会带上 Google 返回的具体 message。
     """
@@ -170,45 +234,14 @@ def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
     raise Exception('; '.join(errors) or 'Gemini 调用失败')
 
 
-def _extract_json(text):
-    """从模型输出中提取 JSON 数组（容忍 ```json 包裹与前后废话）。"""
-    if not text:
-        return []
-    m = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', text, re.S)
-    body = m.group(1) if m else text
-    a, b = body.find('['), body.rfind(']')
-    if a != -1 and b > a:
-        body = body[a:b + 1]
-    try:
-        arr = json.loads(body)
-        return arr if isinstance(arr, list) else []
-    except Exception:  # noqa: BLE001
-        return []
-
-
-def _places_by_gemini(city, key):
-    """Gemini 生成城市景点列表（任意城市、免费、稳定兜底）。"""
-    prompt = (
-        '你是一名旅行攻略助手。请为城市「' + city + '」推荐 8 个值得去的景点，'
-        '用严格 JSON 数组返回，每个元素 3 个字段：'
-        'name 为景点名（中文优先）；kind 为分类（景点/美食/公园/博物馆/购物/夜景，选最贴切的一个）；'
-        'one_line 为一句中文推荐理由，不超过 30 字。'
-        '只输出 JSON 数组，不要 Markdown，不要多余文字。'
-        '示例：[{"name":"浅草寺","kind":"景点","one_line":"东京最古老的寺庙，浅草雷门地标"}]'
-    )
-    text = _gemini_json(prompt, key)
-    places = []
-    for it in _extract_json(text):
-        nm = (it.get('name') or '').strip()
-        if not nm:
-            continue
-        places.append({
-            'name': nm,
-            'kind': (it.get('kind') or '景点')[:12],
-            'desc': (it.get('one_line') or '').strip()[:80],
-            'rate': 0,
-        })
-    return places
+# ---------------- 景点生成入口（智谱优先，Gemini 兜底） ----------------
+def _places_by_llm(city, zh_key, gem_key):
+    """生成城市景点。优先智谱（国内直连免费），其次 Gemini。返回 (places, source)。"""
+    if zh_key:
+        return _parse_places(_zhipu_chat(city, zh_key)), 'zhipu'
+    if gem_key:
+        return _parse_places(_gemini_json(_places_prompt(city), gem_key)), 'gemini'
+    return [], 'none'
 
 
 # ---------------- 入口 ----------------
@@ -218,8 +251,9 @@ def _run(params):
         return {'ok': False, 'error': 'missing_name', 'message': '缺少城市参数 name'}
 
     owm = _key('OPEN_WEATHER_MAP_KEY')
+    zh = _key('ZHIPU_API_KEY')
     gem = _key('GEMINI_API_KEY')
-    if not owm and not gem:
+    if not owm and not zh and not gem:
         return {'ok': False, 'error': 'no_keys',
                 'message': '后端未配置 API key，已回退本地演示数据'}
 
@@ -237,7 +271,7 @@ def _run(params):
     # 天气 与 景点 并行，收敛函数执行时长（Vercel 免费层有上限）
     with ThreadPoolExecutor(max_workers=2) as ex:
         f_weather = ex.submit(_weather, name, result.get('coords'), owm) if owm else None
-        f_places = ex.submit(_places_by_gemini, name, gem) if gem else None
+        f_places = ex.submit(_places_by_llm, name, zh, gem) if (zh or gem) else None
 
         if f_weather:
             try:
@@ -247,14 +281,15 @@ def _run(params):
 
         if f_places:
             try:
-                result['places'] = f_places.result()
-                result['places_source'] = 'gemini'
+                places, source = f_places.result()
+                result['places'] = places
+                result['places_source'] = source
             except Exception as e:  # noqa: BLE001
                 result['places'] = []
                 result['places_error'] = str(e)
         else:
             result['places'] = []
-            result['geo_note'] = '未配置 GEMINI_API_KEY，无法生成景点（天气/时区仍可用）'
+            result['geo_note'] = '未配置大模型 key（智谱 ZHIPU_API_KEY 或 Gemini），无法生成景点（天气/时区仍可用）'
 
     result['has_places'] = bool(result.get('places'))
     return result
