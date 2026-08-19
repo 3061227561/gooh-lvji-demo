@@ -111,40 +111,19 @@ def _http_err_detail(e):
 def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
     """调用 Gemini 生成内容并返回原始文本。
 
-    按优先级尝试，首个成功即返回：
-      1. OpenAI 兼容端点（v1beta/openai/chat/completions，Bearer 认证，官方长期稳定）
-      2. 原生 generateContent（x-goog-api-key header 认证）
-      3. 原生 generateContent（?key= query 认证）
-    模型名也按 GEMINI_MODELS 依次兜底。错误会带上 Google 返回的具体 message。
+    认证顺序（2026-08：Google 已把 key 从 AIza 迁移到 AQ. 新格式）：
+      1. 原生 generateContent（x-goog-api-key header / ?key= query）—— AQ. 与 AIza 均支持，首选
+      2. OpenAI 兼容端点（Bearer）—— 仅旧 AIza key 可用，AQ. key 在此路径会报错，仅兜底
+    模型名按 GEMINI_MODELS 依次尝试。错误会带上 Google 返回的具体 message。
     """
     errors = []
 
-    # 1) OpenAI 兼容端点
-    url1 = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
-    payload1 = {
-        'model': GEMINI_MODELS[0],
-        'messages': [{'role': 'user', 'content': prompt}],
-        'temperature': 0.7,
-        'max_tokens': max_tokens,
-    }
-    try:
-        req = urllib.request.Request(
-            url1, data=json.dumps(payload1).encode('utf-8'),
-            headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = json.loads(r.read().decode('utf-8'))
-        return data['choices'][0]['message']['content']
-    except urllib.error.HTTPError as e:
-        errors.append('openai端点: HTTP ' + str(e.code) + ' ' + _http_err_detail(e))
-    except Exception as e:  # noqa: BLE001
-        errors.append('openai端点: ' + str(e))
-
-    # 2/3) 原生 generateContent（header / query 两种认证 × 多个模型）
-    payload2 = {
+    # 1) 原生 generateContent（header / query 两种认证 × 多个模型）
+    payload = {
         'contents': [{'parts': [{'text': prompt}]}],
         'generationConfig': {'temperature': 0.7, 'maxOutputTokens': max_tokens},
     }
-    body = json.dumps(payload2).encode('utf-8')
+    body = json.dumps(payload).encode('utf-8')
     for model in GEMINI_MODELS:
         base = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent'
         for auth in ('header', 'query'):
@@ -166,6 +145,27 @@ def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
                 errors.append(model + '/' + auth + ': HTTP ' + str(e.code) + ' ' + _http_err_detail(e))
             except Exception as e:  # noqa: BLE001
                 errors.append(model + '/' + auth + ': ' + str(e))
+
+    # 2) OpenAI 兼容端点（仅旧 AIza key 可用，AQ. key 在此路径失败，故放最后兜底）
+    url1 = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+    payload1 = {
+        'model': GEMINI_MODELS[0],
+        'messages': [{'role': 'user', 'content': prompt}],
+        'temperature': 0.7,
+        'max_tokens': max_tokens,
+    }
+    try:
+        req = urllib.request.Request(
+            url1, data=json.dumps(payload1).encode('utf-8'),
+            headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read().decode('utf-8'))
+        return data['choices'][0]['message']['content']
+    except urllib.error.HTTPError as e:
+        errors.append('openai端点: HTTP ' + str(e.code) + ' ' + _http_err_detail(e))
+    except Exception as e:  # noqa: BLE001
+        errors.append('openai端点: ' + str(e))
+
     raise Exception('; '.join(errors) or 'Gemini 调用失败')
 
 
