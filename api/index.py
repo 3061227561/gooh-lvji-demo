@@ -95,6 +95,19 @@ def _weather(name, coords, key):
 
 
 # ---------------- Gemini（生成景点） ----------------
+def _http_err_detail(e):
+    """从 urllib HTTPError 里提取服务端返回的错误信息（便于定位 404 根因）。"""
+    try:
+        raw = e.read().decode('utf-8')
+    except Exception:  # noqa: BLE001
+        return ''
+    try:
+        msg = json.loads(raw).get('error', {}).get('message', '')
+        return msg if msg else raw[:160]
+    except Exception:  # noqa: BLE001
+        return raw[:160]
+
+
 def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
     """调用 Gemini 生成内容并返回原始文本。
 
@@ -102,7 +115,7 @@ def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
       1. OpenAI 兼容端点（v1beta/openai/chat/completions，Bearer 认证，官方长期稳定）
       2. 原生 generateContent（x-goog-api-key header 认证）
       3. 原生 generateContent（?key= query 认证）
-    模型名也按 GEMINI_MODELS 依次兜底。
+    模型名也按 GEMINI_MODELS 依次兜底。错误会带上 Google 返回的具体 message。
     """
     errors = []
 
@@ -121,6 +134,8 @@ def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode('utf-8'))
         return data['choices'][0]['message']['content']
+    except urllib.error.HTTPError as e:
+        errors.append('openai端点: HTTP ' + str(e.code) + ' ' + _http_err_detail(e))
     except Exception as e:  # noqa: BLE001
         errors.append('openai端点: ' + str(e))
 
@@ -147,6 +162,8 @@ def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
                 if parts:
                     return parts[0].get('text', '')
                 errors.append(model + '/' + auth + ': 空响应')
+            except urllib.error.HTTPError as e:
+                errors.append(model + '/' + auth + ': HTTP ' + str(e.code) + ' ' + _http_err_detail(e))
             except Exception as e:  # noqa: BLE001
                 errors.append(model + '/' + auth + ': ' + str(e))
     raise Exception('; '.join(errors) or 'Gemini 调用失败')
