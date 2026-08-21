@@ -211,7 +211,7 @@
             (p.desc ? '<span class="live-desc">' + p.desc + '</span>' : '') + '</div>';
         }).join('') + '</div>';
     } else {
-      html += '<div class="live-empty">暂无景点数据（配置 GEMINI_API_KEY 后可生成）</div>';
+      html += '<div class="live-empty">暂无景点数据（配置 ZHIPU_API_KEY 后可生成）</div>';
     }
     panel.innerHTML = html;
   }
