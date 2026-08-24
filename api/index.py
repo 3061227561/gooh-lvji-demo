@@ -571,8 +571,8 @@ def _scf_reply(result, status=200):
 
 
 def main_handler(event, context):
-    """腾讯云 SCF Web 函数入口。event 为 API 网关/Web 函数事件 JSON。"""
-    method = (event.get('httpMethod') or 'GET').upper()
+    """腾讯云 SCF 事件函数入口（兼容函数 URL / Web 函数事件）。"""
+    method = (event.get('httpMethod') or event.get('method') or 'GET').upper()
     path = event.get('path') or '/'
     body_raw = event.get('body') or ''
     query = event.get('queryString') or event.get('queryStringParameters') or {}
