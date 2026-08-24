@@ -527,3 +527,52 @@ class handler(BaseHTTPRequestHandler):
 
     def log_message(self, *args):  # 静默访问日志，避免噪声
         pass
+
+
+# =========================================================
+# 腾讯云云函数 SCF（Web 函数）入口 —— 与 Vercel 共用同一份业务逻辑
+# 部署到腾讯云时入口函数名设为 main_handler；国内直连智谱、时限可配 60s+，
+# 解决 Vercel 免费层 10s 硬限装不下完整行程的问题。
+# =========================================================
+def main_handler(event, context):
+    """腾讯云 SCF Web 函数入口。event 为 API 网关/Web 函数事件 JSON。"""
+    method = (event.get('httpMethod') or 'GET').upper()
+    path = event.get('path') or '/'
+    body_raw = event.get('body') or ''
+    query = event.get('queryString') or event.get('queryStringParameters') or {}
+
+    if method == 'OPTIONS':  # 预检
+        return {'statusCode': 204, 'headers': _cors(), 'body': ''}
+
+    # 归一化 query 为 {k: [v]}（_run 期望 list 值）
+    params = {}
+    for k, v in (query or {}).items():
+        params[k] = [v] if isinstance(v, str) else (v if isinstance(v, list) else [str(v)])
+
+    # POST body 解析
+    req = {}
+    if method == 'POST' and body_raw:
+        try:
+            req = json.loads(body_raw) if isinstance(body_raw, str) else (body_raw or {})
+        except Exception:  # noqa: BLE001
+            req = {}
+
+    try:
+        if method == 'POST' and path.rstrip('/') == '/api/adjust':
+            result = _handle_adjust(req)
+        else:
+            result = _run(params)
+    except Exception as e:  # noqa: BLE001
+        result = {'ok': False, 'error': 'server_error', 'message': str(e)}
+
+    return {
+        'statusCode': 200,
+        'headers': {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        },
+        'body': json.dumps(result, ensure_ascii=False),
+        'isBase64Encoded': False,
+    }
