@@ -115,8 +115,11 @@ def _weather(name, coords, key):
 
 
 # ---------------- 智谱（OpenAI 兼容端点，国内直连免费） ----------------
-def _zhipu_chat(prompt, key, max_tokens=2048, timeout=15):
-    """调智谱 GLM-4-Flash 并返回文本内容。"""
+def _zhipu_chat(prompt, key, max_tokens=2048, timeout=10):
+    """调智谱 GLM-4-Flash 并返回文本内容。
+
+    注意：Vercel Hobby 免费层函数时限为 10s 硬上限，timeout 必须留足余量。
+    """
     payload = {
         'model': ZHIPU_MODEL,
         'messages': [{'role': 'user', 'content': prompt}],
@@ -193,23 +196,17 @@ def _parse_places(text):
 
 # ---------------- 行程生成 / 调整 ----------------
 def _itinerary_prompt(city, days, budget, preferences):
-    pref = (preferences or '').strip() or '无特殊偏好'
+    pref = (preferences or '').strip() or '无'
     return (
-        '你是一名资深旅行行程规划师。请为城市「' + city + '」规划一份 ' + str(days) +
-        ' 天的每日行程，预算档位「' + budget + '」，用户偏好：' + pref + '。\n'
-        '输出严格 JSON 对象（不要 Markdown、不要多余文字），结构如下：\n'
-        '{"title":"首尔 3 日 · 舒适游","days":[{"day":1,"label":"抵达 · 首尔","note":"落地轻行程","events":['
-        '{"local":"09:00","title":"抵达仁川机场","place":"仁川机场","transit":"机场快线 40 分钟","tag":"交通","verified":true}'
-        ']}]}\n'
-        '字段要求：\n'
-        '- events 每项：local 为 24 小时制时间 HH:MM；title 中文名；place 具体地点；'
-        'transit 为上一个地点到这里的方式与耗时；tag 取 景点/美食/交通/住宿/休憩/夜景/购物/演出 之一；verified 恒为 true\n'
-        '- 每天 5-8 个事件，按时间升序\n'
-        '- 第一天含到达交通、最后一天含离开交通；每天含用餐与休憩；每晚含住宿\n'
-        '- 景点顺序合理、不走回头路；相邻景点标注交通与耗时\n'
-        '- 预算影响：经济→免费景点+公共交通；舒适→含门票+适量打车；豪华→含高消费体验\n'
-        '- 天数越长安排越松、越短越紧凑\n'
-        '只输出 JSON 对象本身。'
+        '你是旅行行程规划师。为城市「' + city + '」生成 ' + str(days) + ' 天每日行程，'
+        '预算「' + budget + '」，偏好：' + pref + '。'
+        '输出严格 JSON 对象，不要 Markdown、不要多余文字。格式：'
+        '{"title":"城市 N 日 · 档位","days":[{"day":1,"label":"抵达日","note":"简短","events":['
+        '{"local":"09:00","title":"抵达","place":"机场","transit":"机场快线 40 分钟","tag":"交通"}]}]}。'
+        '规则：每天 4-6 个事件；local 为 HH:MM 按时间升序；title/place/transit 中文且简短；'
+        'tag 取 景点/美食/交通/住宿/休憩/夜景/购物 之一；第一天含到达、最后一天含离开、每天含用餐与住宿；'
+        '景点顺序不走回头路；预算经济→免费景点+公交、舒适→含门票+打车、豪华→高消费体验；'
+        '天数越长安排越松、越短越紧凑。只输出 JSON 对象本身。'
     )
 
 
@@ -266,8 +263,11 @@ def _normalize_itinerary(data, city, days, budget):
 
 
 def _generate_itinerary(city, days, budget, preferences, key):
-    """智谱生成完整每日行程；失败抛错（由调用方兜底回退）。"""
-    text = _zhipu_chat(_itinerary_prompt(city, days, budget, preferences), key, max_tokens=4096)
+    """智谱生成完整每日行程；失败抛错（由调用方兜底回退）。
+
+    max_tokens 压缩到 2048 以压进 Vercel Hobby 10s 时限（每天 4-6 事件）。
+    """
+    text = _zhipu_chat(_itinerary_prompt(city, days, budget, preferences), key, max_tokens=2048)
     return _normalize_itinerary(_extract_json_object(text), city, days, budget)
 
 
@@ -281,7 +281,7 @@ def _adjust_itinerary(city, instruction, itinerary, days, budget, key):
         'events 每项含 local/title/place/transit/tag/verified）。只改动受需求影响的部分，其余保持不变；'
         '保持每天 5-8 个事件、时间升序、tag 规范。只输出 JSON 对象，不要 Markdown。'
     )
-    text = _zhipu_chat(prompt, key, max_tokens=4096, timeout=20)
+    text = _zhipu_chat(prompt, key, max_tokens=2048, timeout=9)
     return _normalize_itinerary(_extract_json_object(text), city, days, budget)
 
 
