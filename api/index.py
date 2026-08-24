@@ -136,6 +136,60 @@ def _weather(name, coords, key):
     raise Exception('; '.join(errors) or '天气查询失败')
 
 
+# ---------------- 和风天气 QWeather（国内直连，腾讯云场景更稳） ----------------
+def _tz_to_sec(off):
+    """'+09:00' -> 32400 秒。"""
+    try:
+        s = str(off).strip()
+        sign = -1 if s.startswith('-') else 1
+        s = s.lstrip('+-')
+        h, m = s.split(':')
+        return sign * (int(h) * 3600 + int(m) * 60)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _qw_get(url, key, timeout=8):
+    """请求和风天气，兼容 X-QW-Api-Key header 与 ?key= 两种认证。"""
+    req = urllib.request.Request(
+        url, headers={'X-QW-Api-Key': key, 'User-Agent': 'gooh-lvji-demo/1.0'})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode('utf-8'))
+    except urllib.error.HTTPError:
+        url2 = url + ('&' if '?' in url else '?') + 'key=' + urllib.parse.quote(key)
+        req2 = urllib.request.Request(url2, headers={'User-Agent': 'gooh-lvji-demo/1.0'})
+        with urllib.request.urlopen(req2, timeout=timeout) as r:
+            return json.loads(r.read().decode('utf-8'))
+
+
+def _qweather(name, key):
+    """和风天气：城市定位 + 实时天气。返回 {temp, desc, tz_offset, country, coords}。"""
+    url = ('https://devapi.qweather.com/v7/geo/lookup?' +
+           urllib.parse.urlencode({'location': name}))
+    data = _qw_get(url, key)
+    if data.get('code') != '200':
+        raise Exception('和风定位失败(%s): %s' % (data.get('code'), name))
+    locs = data.get('location') or []
+    if not locs:
+        raise Exception('和风未找到城市：' + name)
+    loc = locs[0]
+    loc_id = loc.get('id') or (str(loc.get('lon')) + ',' + str(loc.get('lat')))
+    url2 = ('https://devapi.qweather.com/v7/weather/now?' +
+            urllib.parse.urlencode({'location': loc_id}))
+    w = _qw_get(url2, key)
+    if w.get('code') != '200':
+        raise Exception('和风天气失败(%s)' % w.get('code'))
+    now = w.get('now') or {}
+    return {
+        'temp': int(now.get('temp') or 0),
+        'desc': now.get('text') or '',
+        'tz_offset': _tz_to_sec(loc.get('utcOffset') or '+00:00'),
+        'country': loc.get('country') or '',
+        'coords': {'lon': float(loc.get('lon')), 'lat': float(loc.get('lat'))},
+    }
+
+
 # ---------------- 智谱（OpenAI 兼容端点，国内直连免费） ----------------
 def _zhipu_chat(prompt, key, max_tokens=2560, timeout=50):
     """调智谱 GLM-4-Flash 并返回文本内容。
@@ -425,17 +479,18 @@ def _run(params):
     preferences = (params.get('preferences') or [''])[0].strip()
     want_itinerary = bool(params.get('days'))  # 传了 days 才生成完整行程
 
-    owm = _key('OPEN_WEATHER_MAP_KEY')
+    qw = _key('QWEATHER_KEY')          # 和风天气（推荐，国内直连，腾讯云场景稳）
+    owm = _key('OPEN_WEATHER_MAP_KEY') # OpenWeatherMap（备选，海外可能被墙/风控）
     zh = _key('ZHIPU_API_KEY')
     gem = _key('GEMINI_API_KEY')
-    if not owm and not zh and not gem:
+    if not qw and not owm and not zh and not gem:
         return {'ok': False, 'error': 'no_keys',
                 'message': '后端未配置 API key，已回退本地演示数据'}
 
     result = {'ok': True, 'city': name, 'days': days, 'budget': budget}
 
-    # 坐标（展示用）
-    if owm:
+    # 坐标（展示用；和风天气会返回更准的坐标并覆盖）
+    if owm and not qw:
         try:
             g = _owm_geocode(name, owm)
             if g:
@@ -445,7 +500,12 @@ def _run(params):
 
     # 天气 / 行程(或景点) 并行
     with ThreadPoolExecutor(max_workers=2) as ex:
-        f_weather = ex.submit(_weather, name, result.get('coords'), owm) if owm else None
+        if qw:
+            f_weather = ex.submit(_qweather, name, qw)
+        elif owm:
+            f_weather = ex.submit(_weather, name, result.get('coords'), owm)
+        else:
+            f_weather = None
         if zh and want_itinerary:
             f_content = ex.submit(_generate_itinerary, name, days, budget, preferences, zh)
         elif zh:
@@ -457,7 +517,10 @@ def _run(params):
 
         if f_weather:
             try:
-                result['weather'] = f_weather.result()
+                w = f_weather.result()
+                if isinstance(w, dict) and w.get('coords'):
+                    result['coords'] = {'lon': w['coords']['lon'], 'lat': w['coords']['lat']}
+                result['weather'] = w
             except Exception as e:  # noqa: BLE001
                 result['weather'] = {'error': str(e)}
 
