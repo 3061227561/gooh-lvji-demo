@@ -274,6 +274,11 @@ h3 { font-size: 17px; font-weight: 700; }
 .tz-row span { color: var(--muted); }
 .tz-note { font-size: 13px; color: var(--muted); line-height: 1.7; margin-top: 14px; }
 
+/* S2 单列布局：生成后只显示真实时区卡，无东京预置 */
+.tz-wrap { max-width: 640px; text-align: center; }
+.tz-wrap .tz-card { position: static; text-align: left; margin-top: 6px; }
+.tz-placeholder { color: var(--faint); font-size: 13.5px; line-height: 1.8; margin-top: 4px; }
+
 /* ---------- S3 时间轴 ---------- */
 .timeline-head {
   display: flex;

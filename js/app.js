@@ -455,6 +455,15 @@
     var p = fTokyo.format(new Date()).split(':');
     return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
   }
+  /* 目的地当前时刻（分钟）——按真实天气时区；无数据时回退东京 */
+  function destNowMin() {
+    var w = state.live && state.live.weather;
+    if (w && w.tz_offset != null) {
+      var d = new Date(new Date().getTime() + w.tz_offset * 1000);
+      return d.getUTCHours() * 60 + d.getUTCMinutes();
+    }
+    return tokyoNowMin();
+  }
   /* 「现在」时刻线：演示锚定 D1（正在发生的「今天」），随实时时钟移动 */
   function renderNowLine() {
     var panel = $('#day-panel');
@@ -463,7 +472,7 @@
     var trip = state.trip;
     if (!trip) return; // 生成中无行程，不显示「现在」线
     var evs = trip.days[0].events;
-    var nowMin = tokyoNowMin();
+    var nowMin = destNowMin(); // 按真实目的地时区定位「现在」线
     var idx = 0;
     while (idx < evs.length && timeToMin(evs[idx].local) < nowMin) idx++;
     var line = document.createElement('div');
@@ -689,7 +698,6 @@
     renderReviewWall();
     renderGenHot();
     renderGenPrefChips();
-    renderTzSelector();
     renderTimeline();
     renderClock();
     setInterval(renderClock, 1000);

@@ -73,38 +73,14 @@
 
     <!-- ===== S2 生成结果 · 时区安全 ===== -->
     <section class="screen" data-title="生成结果 · 时区安全">
-      <div class="container split">
-        <div class="col-form">
-          <div class="eyebrow">生成结果 · 时区安全</div>
-          <h2>时区，生成时已替你锁定</h2>
-          <p class="lead">这份攻略在生成时，已自动识别目的地与家乡的时差。时区是全部信任的地基——先把它摆在桌面上。</p>
+      <div class="container tz-wrap">
+        <div class="eyebrow">生成结果 · 时区安全</div>
+        <h2>时区，生成时已替你锁定</h2>
+        <p class="lead">这份攻略在生成时，已自动识别目的地与家乡的时差。时区是全部信任的地基——先把它摆在桌面上。</p>
 
-          <div class="form-card card">
-            <label class="field">
-              <span>目的地</span>
-              <select id="tz-city"></select>
-            </label>
-            <label class="field">
-              <span>出发 — 返回</span>
-              <div class="field-inline">
-                <input type="date" value="2026-08-20" disabled />
-                <span class="to">→</span>
-                <input type="date" value="2026-08-24" disabled />
-              </div>
-            </label>
-            <label class="field">
-              <span>我的时区（家乡）</span>
-              <div class="field-static">北京 · UTC+8</div>
-            </label>
-            <p class="field-hint">⚠️ 演示主线固定东京 5 日；切换目的地可看 Agent 如何识别不同时区。</p>
-            <button class="btn-primary btn-block" id="btn-s2-next" data-next>查看生成的逐日排程 →</button>
-          </div>
-        </div>
-
-        <div class="col-tz">
-          <div id="tz-card" class="card tz-card">
-            <!-- 由 app.js 渲染 -->
-          </div>
+        <div id="tz-card" class="card tz-card">
+          <div class="tz-ok">✓ 时区安全已开启</div>
+          <p class="tz-placeholder">在第 1 屏输入城市并点「✨ 一键生成攻略」后，这里会显示目的地的时区、时差与当地天气。</p>
         </div>
       </div>
     </section>
