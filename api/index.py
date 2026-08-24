@@ -26,6 +26,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -176,7 +177,7 @@ def _qweather(name, key, host):
     """和风天气：城市定位 + 实时天气（用个人专属 API Host，共享域名 2026 起停用）。"""
     host = host or 'devapi.qweather.com'  # fallback 共享域名（可能 404，配 QWEATHER_HOST 为准）
     url = ('https://' + host + '/geo/v2/city/lookup?' +
-           urllib.parse.urlencode({'location': name}))
+           urllib.parse.urlencode({'location': name, 'lang': 'zh'}))
     data = _qw_get(url, key)
     if data.get('code') != '200':
         raise Exception('和风定位失败(%s): %s' % (data.get('code'), name))
@@ -186,7 +187,7 @@ def _qweather(name, key, host):
     loc = locs[0]
     loc_id = loc.get('id') or (str(loc.get('lon')) + ',' + str(loc.get('lat')))
     url2 = ('https://' + host + '/v7/weather/now?' +
-            urllib.parse.urlencode({'location': loc_id}))
+            urllib.parse.urlencode({'location': loc_id, 'lang': 'zh'}))
     w = _qw_get(url2, key)
     if w.get('code') != '200':
         raise Exception('和风天气失败(%s)' % w.get('code'))
@@ -202,23 +203,30 @@ def _qweather(name, key, host):
 
 # ---------------- 智谱（OpenAI 兼容端点，国内直连免费） ----------------
 def _zhipu_chat(prompt, key, max_tokens=2560, timeout=50):
-    """调智谱 GLM-4-Flash 并返回文本内容。
+    """调智谱 GLM-4-Flash 并返回文本内容（智谱偶发慢，超时/失败自动重试一次）。
 
     注：Vercel Hobby 函数时限 10s（当时把 timeout 收紧到 8s）；
     腾讯云 SCF 超时可配 120s，这里放宽到 50s，给智谱生成完整行程留足时间。
     """
-    payload = {
-        'model': ZHIPU_MODEL,
-        'messages': [{'role': 'user', 'content': prompt}],
-        'temperature': 0.7,
-        'max_tokens': max_tokens,
-    }
-    req = urllib.request.Request(
-        ZHIPU_URL, data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        data = json.loads(r.read().decode('utf-8'))
-    return data['choices'][0]['message']['content']
+    last = None
+    for _attempt in range(2):
+        try:
+            payload = {
+                'model': ZHIPU_MODEL,
+                'messages': [{'role': 'user', 'content': prompt}],
+                'temperature': 0.7,
+                'max_tokens': max_tokens,
+            }
+            req = urllib.request.Request(
+                ZHIPU_URL, data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = json.loads(_read_body(r).decode('utf-8'))
+            return data['choices'][0]['message']['content']
+        except Exception as e:  # noqa: BLE001
+            last = e
+            time.sleep(1)
+    raise last if last else Exception('智谱调用失败')
 
 
 # ---------------- 通用：prompt 与 JSON 解析 ----------------
