@@ -45,7 +45,7 @@
   var titles = [];
   var cur = 0;
   var activeDay = 1;
-  var state = { aiParsed: false, aiMerged: false, recorded: false, input: null, live: null, trip: null, chat: [] };
+  var state = { aiParsed: false, aiMerged: false, recorded: false, input: null, live: null, trip: null, generating: false, chat: [] };
 
   /* ---------------- 生成结果概览条（S2–S6 顶部） ---------------- */
   function renderGenSummary() {
@@ -116,6 +116,9 @@
     var pref = $('#gen-pref').value.trim();
     state.input = { dest: dest, budget: budget, date: date, days: days, pref: pref };
     state.live = null; // 实时查询结果，失败/无 key 时保持 null（走回退）
+    state.generating = true; // 生成中：S3 不显示东京贴图，改显示「AI 生成中…」
+    state.trip = null;
+    renderTimeline();
 
     var overlay = $('#gen-overlay');
     var stepsEl = $('#gen-steps');
@@ -235,12 +238,44 @@
     var d = state.input ? state.input.date : '';
     it.range = it.range || (d ? d.replace(/-/g, '.') + ' 起 · ' + it.days.length + ' 日' : '');
     state.trip = it;
+    state.generating = false;
     renderTimeline();
+    renderPricingShare(); // S6 分享卡标题跟随真实行程
   }
 
   function applyLiveData(live) {
-    if (!live) return;
-    if (live.ok && live.itinerary) applyItinerary(live.itinerary);
+    if (!live) { // 网络失败 / 未配置 key
+      state.generating = false;
+      if (!state.trip) state.trip = DATA.trip;
+      renderTimeline();
+      return;
+    }
+    if (live.ok && live.itinerary) {
+      applyItinerary(live.itinerary);
+      if (live.weather) updateTzCardLive(live); // S2 时区卡显示真实城市
+    } else { // 行程生成失败 → 回退东京（live-panel 会提示原因）
+      state.generating = false;
+      if (!state.trip) state.trip = DATA.trip;
+      renderTimeline();
+    }
+  }
+
+  /* S2 时区卡：生成真实行程后，覆盖为真实城市/时区/天气 */
+  function updateTzCardLive(live) {
+    var card = $('#tz-card');
+    if (!card || !live) return;
+    var w = live.weather;
+    var tz = w && w.tz_offset != null
+      ? 'UTC' + (w.tz_offset >= 0 ? '+' : '') + (w.tz_offset / 3600) : '';
+    var diff = w && w.tz_offset != null
+      ? (((w.tz_offset - 28800) / 3600) >= 0 ? '+' : '') + ((w.tz_offset - 28800) / 3600) + ' 小时' : '';
+    card.innerHTML =
+      '<div class="tz-ok">✓ 时区安全已开启</div>' +
+      '<h3>' + live.city + (tz ? '<span class="tz-tag">' + tz + '</span>' : '') + '</h3>' +
+      (diff ? '<div class="tz-row"><span>与家乡 北京 的时差</span><b>' + diff + '</b></div>' : '') +
+      (w ? '<div class="tz-row"><span>当地实时天气</span><b>' + w.desc + ' ' + w.temp + '℃</b></div>' : '') +
+      '<div class="tz-row"><span>双时钟对照</span><b>自动换算 · 实时更新</b></div>' +
+      '<p class="tz-note">行程的每一条，都会同时显示「' + live.city + ' 当地时间」与「北京时间」。</p>';
   }
 
   /* ---------------- S1 偏好快捷 chips ---------------- */
@@ -377,7 +412,19 @@
   }
 
   function renderTimeline() {
-    var trip = state.trip || DATA.trip;
+    var trip = state.trip;
+    if (!trip) { // 生成中 / 尚未生成：不显示东京贴图
+      var city = (state.input && state.input.dest) || '';
+      $('#trip-meta').textContent = state.generating ? 'AI 生成中…' : '';
+      $('#day-tabs').innerHTML = '';
+      $('#day-panel').innerHTML = '<div class="gen-loading">' +
+        (state.generating
+          ? '⏳ AI 正在为你生成 <b>' + city + '</b> 的每日行程…<br/><span class="gen-loading-sub">正在安排景点顺序 · 交通衔接 · 用餐与休憩时间</span>'
+          : '') +
+        '</div>';
+      renderNowLine();
+      return;
+    }
     var days = trip.days;
     if (activeDay > days.length) activeDay = 1; // 生成的行程天数可能少于 5
     var day = days[activeDay - 1];
@@ -406,14 +453,16 @@
     var panel = $('#day-panel');
     panel.querySelectorAll('.now-line').forEach(function (x) { x.remove(); });
     if (activeDay !== 1) return; // 演示锚定 D1，保证任何时候走查都能看到「现在」线
-    var trip = state.trip || DATA.trip;
+    var trip = state.trip;
+    if (!trip) return; // 生成中无行程，不显示「现在」线
     var evs = trip.days[0].events;
     var nowMin = tokyoNowMin();
     var idx = 0;
     while (idx < evs.length && timeToMin(evs[idx].local) < nowMin) idx++;
     var line = document.createElement('div');
     line.className = 'now-line';
-    line.innerHTML = '<span class="now-tag">● 现在 · 东京 ' +
+    var cityName = (state.live && state.live.city) || (state.input ? state.input.dest : '东京');
+    line.innerHTML = '<span class="now-tag">● 现在 · ' + cityName + ' ' +
       String(Math.floor(nowMin / 60)).padStart(2, '0') + ':' + String(nowMin % 60).padStart(2, '0') + '</span>';
     var refs = panel.querySelectorAll('.evt');
     panel.insertBefore(line, refs[idx] || null);
@@ -575,10 +624,13 @@
   /* ---------------- S6 分享 + 定价 ---------------- */
   function renderPricingShare() {
     var s = DATA.share;
+    var t = state.trip;
+    var tripTitle = (t && t.title) || s.title;     // 生成真实行程后分享卡跟随
+    var tripRange = (t && t.range) || s.range;
     $('#share-card').innerHTML =
       '<div class="share-top"><span class="share-brand">Gooh旅记</span><span class="share-tz">' + s.tz + '</span></div>' +
-      '<h3>' + s.title + '</h3>' +
-      '<div class="share-range">' + s.range + '</div>' +
+      '<h3>' + tripTitle + '</h3>' +
+      '<div class="share-range">' + tripRange + '</div>' +
       '<ul class="share-list">' +
         '<li>📍 ' + s.items + '</li>' +
         '<li>✅ ' + s.verified + '</li>' +
@@ -603,6 +655,7 @@
     state.recorded = false;
     DATA.mileage.lost.recorded = false;
     state.live = null;
+    state.generating = false;
     state.trip = DATA.trip; // 回到东京演示数据
     activeDay = 1;
     renderTimeline();
@@ -621,6 +674,7 @@
     titles = screens.map(function (s) { return s.getAttribute('data-title'); });
 
     state.trip = DATA.trip;   // 当前展示的行程（生成成功后被替换）
+    state.generating = false;
     state.chat = loadChat();  // AI 小助手对话历史（localStorage）
 
     renderReviewWall();
