@@ -56,8 +56,17 @@
             <span>③ 什么时候去</span>
             <input type="date" id="gen-date" value="2026-08-20" />
           </div>
+          <div class="field">
+            <span>④ 玩几天</span>
+            <input type="number" id="gen-days" min="1" max="7" value="3" />
+          </div>
+          <div class="field">
+            <span>⑤ 偏好（可选）</span>
+            <input type="text" id="gen-pref" placeholder="如：带父母 / 全程地铁 / 每天≤3个景点" />
+            <div class="hot-picks" id="gen-pref-chips"></div>
+          </div>
           <button class="btn-primary btn-lg btn-block btn-gen" id="btn-generate">✨ 一键生成攻略</button>
-          <p class="gen-hint">Agent 后台处理：人数 · 人物关系 · 旅游目的 · 出行偏好</p>
+          <p class="gen-hint">Agent 后台处理：预算 · 天数 · 偏好 · 实时天气时区</p>
         </div>
       </div>
     </section>
@@ -271,6 +280,20 @@
       <button class="btn-primary" id="btn-next">下一步 →</button>
     </div>
   </footer>
+
+  <!-- ============ AI 小助手（实时反馈调整行程） ============ -->
+  <button class="ai-fab" id="ai-fab" title="向 AI 反馈，实时调整行程">💬 AI 小助手</button>
+  <div class="ai-chat" id="ai-chat" aria-hidden="true">
+    <div class="ai-chat-head">
+      <span>💬 AI 小助手</span>
+      <button class="ai-chat-close" id="ai-chat-close" title="关闭">×</button>
+    </div>
+    <div class="ai-chat-body" id="ai-chat-body"></div>
+    <div class="ai-chat-input">
+      <input id="ai-chat-text" placeholder="如：明天加一个免税店" />
+      <button id="ai-chat-send">发送</button>
+    </div>
+  </div>
 
   <!-- ============ 脚本 ============ -->
   <script src="js/config.js"></script>

@@ -1,20 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-Gooh旅记 · 任意城市查询 —— Vercel Python Serverless 函数
-============================================================
+Gooh旅记 · 任意城市攻略生成器 —— Vercel Python Serverless 函数
+================================================================
 
-路由：GET /api?name=<城市名>[&date=<YYYY-MM-DD>]
+路由：
+  GET  /api?name=<城市>&days=<天数>&budget=<档位>&preferences=<偏好>
+       天气/时区/坐标 + 智谱生成完整每日行程（itinerary，与前端 DATA.trip 结构一致）
+  POST /api/adjust    {city, instruction, itinerary, budget}
+       根据用户实时反馈，重新生成调整后的完整行程
 
-职责：
-  1. OpenWeatherMap：城市 → 实时天气 + UTC 时区偏移（保证双时钟正确）
-  2. 大模型生成该城市景点（任意城市、免费、稳定）：
-     - 优先 智谱 GLM-4-Flash（OpenAI 兼容端点，国内直连免费，推荐）
-     - 兜底 Google Gemini（原生端点，多模型 fallback；2026-08 起新用户 key 只能用 3.x）
-  3. 无 key / 失败：返回 {ok:false,...} 或空景点，前端回退（天气+时区仍可用）
+数据源：
+  OpenWeatherMap：天气 + UTC 时区（3.0→2.5 端点兜底、坐标优先）
+  智谱 GLM-4-Flash：生成完整行程 / 调整行程（OpenAI 兼容端点，国内直连免费）
+  Google Gemini：可选兜底（原生端点，多模型）
+
+双模式：无 key / 断网 / API 失败 → 返回 ok:false 或空，前端回退本地东京演示数据。
 
 环境变量（Vercel Settings → Environment Variables）：
   OPEN_WEATHER_MAP_KEY  https://openweathermap.org   （免费 1000 次/天）
-  ZHIPU_API_KEY         https://open.bigmodel.cn    （glm-4-flash 免费，国内直连，推荐）
+  ZHIPU_API_KEY         https://open.bigmodel.cn    （glm-4-flash 免费，推荐）
   GEMINI_API_KEY        https://aistudio.google.com/apikey（可选，兜底）
 """
 import json
@@ -36,6 +40,9 @@ ZHIPU_MODEL = 'glm-4-flash'
 # Gemini 原生端点，按优先级尝试；若报 model no longer available，按提示换新模型名
 GEMINI_MODELS = ('gemini-3.6-flash', 'gemini-3.5-flash-lite')
 
+# 行程相关 tag 白名单（供景点抽取用）
+TOURISM_TAGS = ('景点', '美食', '购物', '夜景', '公园', '博物馆', '休憩', '演出', '体验')
+
 
 def _key(name):
     return os.environ.get(name, '').strip()
@@ -50,9 +57,17 @@ def _http_get(url, timeout=TIMEOUT):
 def _cors():
     return {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
     }
+
+
+def _time_to_min(t):
+    try:
+        h, m = str(t).split(':')
+        return int(h) * 60 + int(m)
+    except Exception:  # noqa: BLE001
+        return 0
 
 
 # ---------------- OpenWeatherMap ----------------
@@ -99,7 +114,24 @@ def _weather(name, coords, key):
     raise Exception('; '.join(errors) or '天气查询失败')
 
 
-# ---------------- 通用：景点 prompt 与解析 ----------------
+# ---------------- 智谱（OpenAI 兼容端点，国内直连免费） ----------------
+def _zhipu_chat(prompt, key, max_tokens=2048, timeout=15):
+    """调智谱 GLM-4-Flash 并返回文本内容。"""
+    payload = {
+        'model': ZHIPU_MODEL,
+        'messages': [{'role': 'user', 'content': prompt}],
+        'temperature': 0.7,
+        'max_tokens': max_tokens,
+    }
+    req = urllib.request.Request(
+        ZHIPU_URL, data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        data = json.loads(r.read().decode('utf-8'))
+    return data['choices'][0]['message']['content']
+
+
+# ---------------- 通用：prompt 与 JSON 解析 ----------------
 def _places_prompt(city):
     return (
         '你是一名旅行攻略助手。请为城市「' + city + '」推荐 8 个值得去的景点，'
@@ -127,6 +159,22 @@ def _extract_json(text):
         return []
 
 
+def _extract_json_object(text):
+    """从模型输出中提取 JSON 对象（行程用）。"""
+    if not text:
+        return {}
+    m = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.S)
+    body = m.group(1) if m else text
+    a, b = body.find('{'), body.rfind('}')
+    if a != -1 and b > a:
+        body = body[a:b + 1]
+    try:
+        obj = json.loads(body)
+        return obj if isinstance(obj, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def _parse_places(text):
     """把模型返回的 JSON 数组文本规整为景点列表。"""
     places = []
@@ -143,23 +191,122 @@ def _parse_places(text):
     return places
 
 
-# ---------------- 智谱 AI（OpenAI 兼容端点，国内直连免费） ----------------
-def _zhipu_chat(city, key, timeout=15):
-    payload = {
-        'model': ZHIPU_MODEL,
-        'messages': [{'role': 'user', 'content': _places_prompt(city)}],
-        'temperature': 0.7,
-        'max_tokens': 1024,
+# ---------------- 行程生成 / 调整 ----------------
+def _itinerary_prompt(city, days, budget, preferences):
+    pref = (preferences or '').strip() or '无特殊偏好'
+    return (
+        '你是一名资深旅行行程规划师。请为城市「' + city + '」规划一份 ' + str(days) +
+        ' 天的每日行程，预算档位「' + budget + '」，用户偏好：' + pref + '。\n'
+        '输出严格 JSON 对象（不要 Markdown、不要多余文字），结构如下：\n'
+        '{"title":"首尔 3 日 · 舒适游","days":[{"day":1,"label":"抵达 · 首尔","note":"落地轻行程","events":['
+        '{"local":"09:00","title":"抵达仁川机场","place":"仁川机场","transit":"机场快线 40 分钟","tag":"交通","verified":true}'
+        ']}]}\n'
+        '字段要求：\n'
+        '- events 每项：local 为 24 小时制时间 HH:MM；title 中文名；place 具体地点；'
+        'transit 为上一个地点到这里的方式与耗时；tag 取 景点/美食/交通/住宿/休憩/夜景/购物/演出 之一；verified 恒为 true\n'
+        '- 每天 5-8 个事件，按时间升序\n'
+        '- 第一天含到达交通、最后一天含离开交通；每天含用餐与休憩；每晚含住宿\n'
+        '- 景点顺序合理、不走回头路；相邻景点标注交通与耗时\n'
+        '- 预算影响：经济→免费景点+公共交通；舒适→含门票+适量打车；豪华→含高消费体验\n'
+        '- 天数越长安排越松、越短越紧凑\n'
+        '只输出 JSON 对象本身。'
+    )
+
+
+def _normalize_itinerary(data, city, days, budget):
+    """校验并规整智谱返回的行程为前端 DATA.trip 同构；不合格抛错。"""
+    if not isinstance(data, dict):
+        raise Exception('行程格式非法：非对象')
+    days_list = data.get('days') or []
+    if not isinstance(days_list, list) or not days_list:
+        raise Exception('行程缺少 days')
+    out_days = []
+    for d in days_list:
+        if not isinstance(d, dict):
+            continue
+        events = d.get('events') or []
+        if not isinstance(events, list):
+            continue
+        evs = []
+        for e in events:
+            if not isinstance(e, dict):
+                continue
+            local = str(e.get('local') or '').strip()
+            title = str(e.get('title') or '').strip()
+            if not local or not title:
+                continue
+            evs.append({
+                'local': local[:5],
+                'title': title[:40],
+                'place': str(e.get('place') or '')[:30],
+                'transit': str(e.get('transit') or '')[:30],
+                'tag': str(e.get('tag') or '景点')[:6],
+                'verified': True,
+                'note': str(e.get('note') or '')[:60],
+            })
+        if not evs:
+            continue
+        evs.sort(key=lambda x: _time_to_min(x['local']))
+        out_days.append({
+            'day': int(d.get('day') or (len(out_days) + 1)),
+            'label': str(d.get('label') or ('第 %d 天' % (len(out_days) + 1)))[:20],
+            'note': str(d.get('note') or '')[:30],
+            'events': evs,
+        })
+    if not out_days:
+        raise Exception('行程事件为空')
+    return {
+        'title': str(data.get('title') or (city + ' ' + str(days) + ' 日 · ' + budget))[:30],
+        'dest': city,
+        'tz': 'UTC+9',      # 占位；真实时区由前端天气数据驱动双时钟
+        'homeTz': 'UTC+8',
+        'range': '',
+        'days': out_days[:days],
     }
-    req = urllib.request.Request(
-        ZHIPU_URL, data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        data = json.loads(r.read().decode('utf-8'))
-    return data['choices'][0]['message']['content']
 
 
-# ---------------- Google Gemini（原生端点，兜底） ----------------
+def _generate_itinerary(city, days, budget, preferences, key):
+    """智谱生成完整每日行程；失败抛错（由调用方兜底回退）。"""
+    text = _zhipu_chat(_itinerary_prompt(city, days, budget, preferences), key, max_tokens=4096)
+    return _normalize_itinerary(_extract_json_object(text), city, days, budget)
+
+
+def _adjust_itinerary(city, instruction, itinerary, days, budget, key):
+    """根据用户实时反馈，重新生成调整后的完整行程。"""
+    prompt = (
+        '你是旅行行程调整助手。用户当前行程 JSON：\n' +
+        json.dumps(itinerary, ensure_ascii=False) +
+        '\n\n用户的新需求：' + instruction +
+        '\n\n请输出调整后的完整行程 JSON（结构与原来完全一致：title、days[].day/label/note/events[]，'
+        'events 每项含 local/title/place/transit/tag/verified）。只改动受需求影响的部分，其余保持不变；'
+        '保持每天 5-8 个事件、时间升序、tag 规范。只输出 JSON 对象，不要 Markdown。'
+    )
+    text = _zhipu_chat(prompt, key, max_tokens=4096, timeout=20)
+    return _normalize_itinerary(_extract_json_object(text), city, days, budget)
+
+
+def _places_from_itinerary(it):
+    """从生成的行程里抽取景点概况（供 live-panel 展示）。"""
+    out = []
+    seen = set()
+    for d in it.get('days', []):
+        for e in d.get('events', []):
+            if e.get('tag') not in TOURISM_TAGS:
+                continue
+            t = (e.get('title') or '').strip()
+            if not t or t.lower() in seen:
+                continue
+            seen.add(t.lower())
+            out.append({
+                'name': t,
+                'kind': e.get('tag') or '景点',
+                'desc': (e.get('note') or '')[:60],
+                'rate': 0,
+            })
+    return out
+
+
+# ---------------- Gemini（可选兜底） ----------------
 def _http_err_detail(e):
     """从 urllib HTTPError 里提取服务端返回的错误信息（便于定位根因）。"""
     try:
@@ -234,14 +381,8 @@ def _gemini_json(prompt, key, max_tokens=1024, timeout=12):
     raise Exception('; '.join(errors) or 'Gemini 调用失败')
 
 
-# ---------------- 景点生成入口（智谱优先，Gemini 兜底） ----------------
-def _places_by_llm(city, zh_key, gem_key):
-    """生成城市景点。优先智谱（国内直连免费），其次 Gemini。返回 (places, source)。"""
-    if zh_key:
-        return _parse_places(_zhipu_chat(city, zh_key)), 'zhipu'
-    if gem_key:
-        return _parse_places(_gemini_json(_places_prompt(city), gem_key)), 'gemini'
-    return [], 'none'
+def _places_by_gemini(city, key):
+    return _parse_places(_gemini_json(_places_prompt(city), key))
 
 
 # ---------------- 入口 ----------------
@@ -250,6 +391,15 @@ def _run(params):
     if not name:
         return {'ok': False, 'error': 'missing_name', 'message': '缺少城市参数 name'}
 
+    # 行程参数
+    days = 3
+    raw_days = (params.get('days') or [''])[0].strip()
+    if raw_days.isdigit():
+        days = max(1, min(7, int(raw_days)))
+    budget = (params.get('budget') or ['舒适'])[0].strip() or '舒适'
+    preferences = (params.get('preferences') or [''])[0].strip()
+    want_itinerary = bool(params.get('days'))  # 传了 days 才生成完整行程
+
     owm = _key('OPEN_WEATHER_MAP_KEY')
     zh = _key('ZHIPU_API_KEY')
     gem = _key('GEMINI_API_KEY')
@@ -257,9 +407,9 @@ def _run(params):
         return {'ok': False, 'error': 'no_keys',
                 'message': '后端未配置 API key，已回退本地演示数据'}
 
-    result = {'ok': True, 'city': name}
+    result = {'ok': True, 'city': name, 'days': days, 'budget': budget}
 
-    # 坐标（展示用，来自 OpenWeather geocoding）
+    # 坐标（展示用）
     if owm:
         try:
             g = _owm_geocode(name, owm)
@@ -268,10 +418,17 @@ def _run(params):
         except Exception:  # noqa: BLE001
             pass
 
-    # 天气 与 景点 并行，收敛函数执行时长（Vercel 免费层有上限）
+    # 天气 / 行程(或景点) 并行
     with ThreadPoolExecutor(max_workers=2) as ex:
         f_weather = ex.submit(_weather, name, result.get('coords'), owm) if owm else None
-        f_places = ex.submit(_places_by_llm, name, zh, gem) if (zh or gem) else None
+        if zh and want_itinerary:
+            f_content = ex.submit(_generate_itinerary, name, days, budget, preferences, zh)
+        elif zh:
+            f_content = ex.submit(_parse_places, _zhipu_chat(_places_prompt(name), zh, max_tokens=1024))
+        elif gem:
+            f_content = ex.submit(_places_by_gemini, name, gem)
+        else:
+            f_content = None
 
         if f_weather:
             try:
@@ -279,20 +436,47 @@ def _run(params):
             except Exception as e:  # noqa: BLE001
                 result['weather'] = {'error': str(e)}
 
-        if f_places:
+        if f_content:
             try:
-                places, source = f_places.result()
-                result['places'] = places
-                result['places_source'] = source
+                content = f_content.result()
+                if want_itinerary:
+                    result['itinerary'] = content
+                    result['has_itinerary'] = True
+                    result['places'] = _places_from_itinerary(content)
+                else:
+                    result['places'] = content
+                result['places_source'] = 'zhipu' if zh else 'gemini'
             except Exception as e:  # noqa: BLE001
                 result['places'] = []
-                result['places_error'] = str(e)
+                if want_itinerary:
+                    result['itinerary_error'] = str(e)
+                else:
+                    result['places_error'] = str(e)
         else:
             result['places'] = []
-            result['geo_note'] = '未配置大模型 key（智谱 ZHIPU_API_KEY 或 Gemini），无法生成景点（天气/时区仍可用）'
+            result['geo_note'] = '未配置大模型 key（智谱 ZHIPU_API_KEY 或 Gemini），无法生成行程（天气/时区仍可用）'
 
     result['has_places'] = bool(result.get('places'))
     return result
+
+
+def _handle_adjust(req):
+    """POST /api/adjust：按用户指令调整当前行程。"""
+    zh = _key('ZHIPU_API_KEY')
+    if not zh:
+        return {'ok': False, 'error': 'no_keys', 'message': '后端未配置智谱 key'}
+    city = (req.get('city') or '').strip()
+    instruction = (req.get('instruction') or '').strip()
+    itinerary = req.get('itinerary') or {}
+    if not city or not instruction or not isinstance(itinerary, dict) or not itinerary.get('days'):
+        return {'ok': False, 'error': 'bad_request', 'message': '缺少参数 city/instruction/itinerary'}
+    days = len(itinerary.get('days') or [])
+    budget = (req.get('budget') or '舒适').strip() or '舒适'
+    try:
+        new_it = _adjust_itinerary(city, instruction, itinerary, days, budget, zh)
+        return {'ok': True, 'itinerary': new_it, 'places': _places_from_itinerary(new_it)}
+    except Exception as e:  # noqa: BLE001
+        return {'ok': False, 'error': 'adjust_failed', 'message': str(e)}
 
 
 class handler(BaseHTTPRequestHandler):
@@ -302,14 +486,8 @@ class handler(BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.end_headers()
 
-    def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        params = urllib.parse.parse_qs(parsed.query)
-        try:
-            body = _run(params)
-        except Exception as e:  # noqa: BLE001
-            body = {'ok': False, 'error': 'server_error', 'message': str(e)}
-        payload = json.dumps(body, ensure_ascii=False).encode('utf-8')
+    def _reply(self, body_obj):
+        payload = json.dumps(body_obj, ensure_ascii=False).encode('utf-8')
         self.send_response(200)
         for k, v in _cors().items():
             self.send_header(k, v)
@@ -317,6 +495,33 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed.query)
+        try:
+            body = _run(params)
+        except Exception as e:  # noqa: BLE001
+            body = {'ok': False, 'error': 'server_error', 'message': str(e)}
+        self._reply(body)
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        length = int(self.headers.get('Content-Length') or 0)
+        raw = self.rfile.read(length) if length else b''
+        try:
+            req = json.loads(raw.decode('utf-8')) if raw else {}
+        except Exception:  # noqa: BLE001
+            req = {}
+        path = parsed.path.rstrip('/')
+        try:
+            if path == '/api/adjust':
+                body = _handle_adjust(req)
+            else:
+                body = {'ok': False, 'error': 'not_found', 'message': '未知端点 ' + path}
+        except Exception as e:  # noqa: BLE001
+            body = {'ok': False, 'error': 'server_error', 'message': str(e)}
+        self._reply(body)
 
     def log_message(self, *args):  # 静默访问日志，避免噪声
         pass

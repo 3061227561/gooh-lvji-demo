@@ -45,7 +45,7 @@
   var titles = [];
   var cur = 0;
   var activeDay = 1;
-  var state = { aiParsed: false, aiMerged: false, recorded: false, input: null };
+  var state = { aiParsed: false, aiMerged: false, recorded: false, input: null, live: null, trip: null, chat: [] };
 
   /* ---------------- 生成结果概览条（S2–S6 顶部） ---------------- */
   function renderGenSummary() {
@@ -111,7 +111,10 @@
     var dest = $('#gen-dest').value.trim() || '东京';
     var budget = getBudget();
     var date = $('#gen-date').value || '2026-08-20';
-    state.input = { dest: dest, budget: budget, date: date };
+    var days = parseInt($('#gen-days').value, 10);
+    if (!days || days < 1 || days > 7) days = 3;
+    var pref = $('#gen-pref').value.trim();
+    state.input = { dest: dest, budget: budget, date: date, days: days, pref: pref };
     state.live = null; // 实时查询结果，失败/无 key 时保持 null（走回退）
 
     var overlay = $('#gen-overlay');
@@ -139,8 +142,9 @@
 
     // 实时查询（P0 打通链路）：异步，不阻塞遮罩动画；无 key / 失败自动回退本地数据
     renderLivePanel('loading');
-    queryCity(dest).then(function (live) {
+    queryCity(dest, days, budget, pref).then(function (live) {
       state.live = live;
+      applyLiveData(live);
       renderLivePanel(live);
     });
 
@@ -151,10 +155,12 @@
   }
 
   /* ---------------- P0 实时查询（任意城市） ---------------- */
-  function queryCity(name) {
+  function queryCity(name, days, budget, pref) {
     var base = window.CONFIG && window.CONFIG.API_BASE;
     if (!base || base.indexOf('你的') > -1) return Promise.resolve({ skipped: true }); // 未配置 → 不打扰
-    var url = base.replace(/\/+$/, '') + '/api?name=' + encodeURIComponent(name);
+    var url = base.replace(/\/+$/, '') + '/api?name=' + encodeURIComponent(name) +
+      '&days=' + (days || 3) + '&budget=' + encodeURIComponent(budget || '舒适') +
+      '&preferences=' + encodeURIComponent(pref || '');
     return fetch(url)
       .then(function (r) { return r.ok ? r.json() : { ok: false, message: '后端 HTTP ' + r.status }; })
       .then(function (d) {
@@ -216,6 +222,104 @@
     panel.innerHTML = html;
   }
 
+  /* ---------------- 应用后端生成的完整行程 ---------------- */
+  function applyItinerary(it) {
+    if (!it || !it.days || !it.days.length) return;
+    var d = state.input ? state.input.date : '';
+    it.range = it.range || (d ? d.replace(/-/g, '.') + ' 起 · ' + it.days.length + ' 日' : '');
+    state.trip = it;
+    renderTimeline();
+  }
+
+  function applyLiveData(live) {
+    if (!live) return;
+    if (live.ok && live.itinerary) applyItinerary(live.itinerary);
+  }
+
+  /* ---------------- S1 偏好快捷 chips ---------------- */
+  var PREF_PRESETS = ['带父母', '全程地铁', '少走路', '美食为主', '轻松慢游', '夜景为主'];
+  function renderGenPrefChips() {
+    var box = $('#gen-pref-chips');
+    if (!box) return;
+    box.innerHTML = PREF_PRESETS.map(function (p) {
+      return '<button type="button" class="hot-chip" data-pref="' + p + '">' + p + '</button>';
+    }).join('');
+  }
+
+  /* ---------------- AI 小助手（实时反馈调整行程） ---------------- */
+  var CHAT_KEY = 'gooh_ai_chat';
+  function loadChat() {
+    try { return JSON.parse(localStorage.getItem(CHAT_KEY)) || []; } catch (e) { return []; }
+  }
+  function saveChat(chat) {
+    try { localStorage.setItem(CHAT_KEY, JSON.stringify(chat)); } catch (e) {}
+  }
+  function renderChat() {
+    var body = $('#ai-chat-body');
+    if (!body) return;
+    body.innerHTML = state.chat.length
+      ? state.chat.map(function (m) {
+          return '<div class="chat-msg ' + (m.role === 'user' ? 'is-user' : 'is-ai') + '">' + m.text + '</div>';
+        }).join('')
+      : '<div class="chat-empty">说点什么，我帮你调整行程～<br/>如：明天加一个免税店 / 今天下午改轻松一点</div>';
+    body.scrollTop = body.scrollHeight;
+  }
+  function openChat() {
+    $('#ai-chat').classList.add('is-open');
+    $('#ai-chat').setAttribute('aria-hidden', 'false');
+    renderChat();
+    $('#ai-chat-text').focus();
+  }
+  function closeChat() {
+    $('#ai-chat').classList.remove('is-open');
+    $('#ai-chat').setAttribute('aria-hidden', 'true');
+  }
+  function sendChat() {
+    var input = $('#ai-chat-text');
+    var text = input.value.trim();
+    if (!text) return;
+    state.chat.push({ role: 'user', text: text });
+    saveChat(state.chat);
+    renderChat();
+    input.value = '';
+
+    // 未生成行程（还在东京演示数据）→ 提示先生成
+    if (!state.trip || state.trip === DATA.trip) {
+      state.chat.push({ role: 'ai', text: '还没有 AI 生成的行程。请先在第 1 屏输入城市、点「一键生成攻略」，再来调整～' });
+      saveChat(state.chat); renderChat(); return;
+    }
+    var base = window.CONFIG && window.CONFIG.API_BASE;
+    if (!base || base.indexOf('你的') > -1) {
+      state.chat.push({ role: 'ai', text: '后端未配置 API_BASE，请先部署 Vercel。' });
+      saveChat(state.chat); renderChat(); return;
+    }
+    var payload = {
+      city: (state.input && state.input.dest) || '东京',
+      instruction: text,
+      itinerary: state.trip,
+      budget: (state.input && state.input.budget) || '舒适',
+    };
+    fetch(base.replace(/\/+$/, '') + '/api/adjust', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.ok && d.itinerary) {
+          applyItinerary(d.itinerary);
+          state.chat.push({ role: 'ai', text: '已调整 ✅ 时间轴已更新，看看是否符合你的要求～' });
+        } else {
+          state.chat.push({ role: 'ai', text: '请稍后重试（' + ((d && (d.message || d.error)) || '调整失败') + '）' });
+        }
+        saveChat(state.chat); renderChat();
+      })
+      .catch(function () {
+        state.chat.push({ role: 'ai', text: '请稍后重试（网络异常，未影响当前行程）' });
+        saveChat(state.chat); renderChat();
+      });
+  }
+
   /* ---------------- S2 时区识别 ---------------- */
   function renderTzSelector() {
     $('#tz-city').innerHTML = DATA.tzCities.map(function (c, i) {
@@ -241,17 +345,36 @@
   /* ---------------- S3 双时钟时间轴 ---------------- */
   var fTokyo   = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tokyo' });
   var fBeijing = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Shanghai' });
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function fmtOffset(offsetSec) {
+    // 根据 UTC 偏移（秒）显示「当地此刻」，任意城市通用
+    var now = new Date();
+    var utcMs = now.getTime() + now.getTimezoneOffset() * 60000 + offsetSec * 1000;
+    var d = new Date(utcMs);
+    return pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes());
+  }
   function renderClock() {
     var d = new Date();
-    $('#clock-dest').textContent = fTokyo.format(d);
+    var w = state.live && state.live.ok && state.live.weather;
+    if (w && w.tz_offset != null) {
+      $('#clock-dest').textContent = fmtOffset(w.tz_offset); // 目的地当地时间
+      $('.clock-dest .clock-city').textContent = state.live.city + ' · UTC' +
+        (w.tz_offset >= 0 ? '+' : '') + (w.tz_offset / 3600);
+    } else {
+      $('#clock-dest').textContent = fTokyo.format(d);        // 演示 fallback：东京
+      $('.clock-dest .clock-city').textContent = '东京 · UTC+9';
+    }
     $('#clock-home').textContent = fBeijing.format(d);
+    $('.clock-home .clock-city').textContent = '北京 · UTC+8';
     renderNowLine(); // 「现在」时刻线随时钟每秒更新
   }
 
   function renderTimeline() {
-    var days = DATA.trip.days;
+    var trip = state.trip || DATA.trip;
+    var days = trip.days;
+    if (activeDay > days.length) activeDay = 1; // 生成的行程天数可能少于 5
     var day = days[activeDay - 1];
-    $('#trip-meta').textContent = DATA.trip.title + ' · ' + DATA.trip.range;
+    $('#trip-meta').textContent = trip.title + ' · ' + (trip.range || '');
     $('#day-tabs').innerHTML = days.map(function (d) {
       return '<button class="day-tab' + (d.day === activeDay ? ' is-active' : '') + '" data-day="' + d.day + '">' +
         '<b>D' + d.day + '</b>' +
@@ -276,7 +399,8 @@
     var panel = $('#day-panel');
     panel.querySelectorAll('.now-line').forEach(function (x) { x.remove(); });
     if (activeDay !== 1) return; // 演示锚定 D1，保证任何时候走查都能看到「现在」线
-    var evs = DATA.trip.days[0].events;
+    var trip = state.trip || DATA.trip;
+    var evs = trip.days[0].events;
     var nowMin = tokyoNowMin();
     var idx = 0;
     while (idx < evs.length && timeToMin(evs[idx].local) < nowMin) idx++;
@@ -366,10 +490,10 @@
   function mergeAI() {
     if (!state.aiParsed || state.aiMerged) return;
     DATA.ai.parsed.forEach(function (p) {
-      DATA.trip.days[p.day - 1].events.push(Object.assign({ isNew: true }, p));
+      state.trip.days[p.day - 1].events.push(Object.assign({ isNew: true }, p));
     });
     // 按时间排序，让 AI 条目落入正确的时间位
-    DATA.trip.days.forEach(function (d) {
+    state.trip.days.forEach(function (d) {
       d.events.sort(function (a, b) { return timeToMin(a.local) - timeToMin(b.local); });
     });
     state.aiMerged = true;
@@ -464,7 +588,7 @@
   /* ---------------- 重启（回到初始状态） ---------------- */
   function restart() {
     if (state.aiMerged) {
-      DATA.trip.days.forEach(function (d) {
+      state.trip.days.forEach(function (d) {
         d.events = d.events.filter(function (e) { return !e.isNew; });
       });
       state.aiMerged = false;
@@ -472,6 +596,7 @@
     state.recorded = false;
     DATA.mileage.lost.recorded = false;
     state.live = null;
+    state.trip = DATA.trip; // 回到东京演示数据
     activeDay = 1;
     renderTimeline();
     renderAIStatic();
@@ -488,8 +613,12 @@
     screens = $$('.screen');
     titles = screens.map(function (s) { return s.getAttribute('data-title'); });
 
+    state.trip = DATA.trip;   // 当前展示的行程（生成成功后被替换）
+    state.chat = loadChat();  // AI 小助手对话历史（localStorage）
+
     renderReviewWall();
     renderGenHot();
+    renderGenPrefChips();
     renderTzSelector();
     renderTimeline();
     renderClock();
@@ -520,12 +649,18 @@
       var c = e.target.closest('.hot-chip');
       if (!c) return;
       $('#gen-dest').value = c.textContent;
-      $$('.hot-chip').forEach(function (x) { x.classList.toggle('is-on', x === c); });
+      $$('#gen-hot .hot-chip').forEach(function (x) { x.classList.toggle('is-on', x === c); });
     });
     $('#gen-budget').addEventListener('click', function (e) {
       var b = e.target.closest('button[data-v]');
       if (!b) return;
       $$('#gen-budget button').forEach(function (x) { x.classList.toggle('is-on', x === b); });
+    });
+    $('#gen-pref-chips').addEventListener('click', function (e) {
+      var c = e.target.closest('.hot-chip');
+      if (!c) return;
+      $('#gen-pref').value = c.getAttribute('data-pref');
+      $$('#gen-pref-chips .hot-chip').forEach(function (x) { x.classList.toggle('is-on', x === c); });
     });
 
     // S3 日签切换
@@ -556,6 +691,14 @@
       $('#record-val').textContent = parseFloat(slider.value).toFixed(1) + ' km';
     });
     $('#record-btn').addEventListener('click', doRecord);
+
+    // AI 小助手（实时反馈调整）
+    $('#ai-fab').addEventListener('click', openChat);
+    $('#ai-chat-close').addEventListener('click', closeChat);
+    $('#ai-chat-send').addEventListener('click', sendChat);
+    $('#ai-chat-text').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') sendChat();
+    });
 
     goTo(0);
   }
