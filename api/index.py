@@ -163,9 +163,10 @@ def _qw_get(url, key, timeout=8):
             return json.loads(r.read().decode('utf-8'))
 
 
-def _qweather(name, key):
-    """和风天气：城市定位 + 实时天气。返回 {temp, desc, tz_offset, country, coords}。"""
-    url = ('https://devapi.qweather.com/v7/geo/lookup?' +
+def _qweather(name, key, host):
+    """和风天气：城市定位 + 实时天气（用个人专属 API Host，共享域名 2026 起停用）。"""
+    host = host or 'devapi.qweather.com'  # fallback 共享域名（可能 404，配 QWEATHER_HOST 为准）
+    url = ('https://' + host + '/geo/v2/city/lookup?' +
            urllib.parse.urlencode({'location': name}))
     data = _qw_get(url, key)
     if data.get('code') != '200':
@@ -175,7 +176,7 @@ def _qweather(name, key):
         raise Exception('和风未找到城市：' + name)
     loc = locs[0]
     loc_id = loc.get('id') or (str(loc.get('lon')) + ',' + str(loc.get('lat')))
-    url2 = ('https://devapi.qweather.com/v7/weather/now?' +
+    url2 = ('https://' + host + '/v7/weather/now?' +
             urllib.parse.urlencode({'location': loc_id}))
     w = _qw_get(url2, key)
     if w.get('code') != '200':
@@ -501,7 +502,7 @@ def _run(params):
     # 天气 / 行程(或景点) 并行
     with ThreadPoolExecutor(max_workers=2) as ex:
         if qw:
-            f_weather = ex.submit(_qweather, name, qw)
+            f_weather = ex.submit(_qweather, name, qw, _key('QWEATHER_HOST'))
         elif owm:
             f_weather = ex.submit(_weather, name, result.get('coords'), owm)
         else:
