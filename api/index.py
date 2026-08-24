@@ -21,6 +21,7 @@ Gooh旅记 · 任意城市攻略生成器 —— Vercel Python Serverless 函数
   ZHIPU_API_KEY         https://open.bigmodel.cn    （glm-4-flash 免费，推荐）
   GEMINI_API_KEY        https://aistudio.google.com/apikey（可选，兜底）
 """
+import gzip
 import json
 import os
 import re
@@ -49,10 +50,18 @@ def _key(name):
     return os.environ.get(name, '').strip()
 
 
+def _read_body(resp):
+    """读取响应体；和风等 API 返回 gzip 时自动解压（0x1f 0x8b 为 gzip 魔数）。"""
+    data = resp.read()
+    if data[:2] == b'\x1f\x8b':
+        data = gzip.decompress(data)
+    return data
+
+
 def _http_get(url, timeout=TIMEOUT):
     req = urllib.request.Request(url, headers={'User-Agent': 'gooh-lvji-demo/1.0'})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode('utf-8'))
+        return json.loads(_read_body(r).decode('utf-8'))
 
 
 def _cors():
@@ -155,12 +164,12 @@ def _qw_get(url, key, timeout=8):
         url, headers={'X-QW-Api-Key': key, 'User-Agent': 'gooh-lvji-demo/1.0'})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode('utf-8'))
+            return json.loads(_read_body(r).decode('utf-8'))
     except urllib.error.HTTPError:
         url2 = url + ('&' if '?' in url else '?') + 'key=' + urllib.parse.quote(key)
         req2 = urllib.request.Request(url2, headers={'User-Agent': 'gooh-lvji-demo/1.0'})
         with urllib.request.urlopen(req2, timeout=timeout) as r:
-            return json.loads(r.read().decode('utf-8'))
+            return json.loads(_read_body(r).decode('utf-8'))
 
 
 def _qweather(name, key, host):
