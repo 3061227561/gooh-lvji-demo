@@ -33,8 +33,12 @@
   /* ---------------- 工具 ---------------- */
   // 东京 UTC+9 → 北京 UTC+8：减 1 小时
   function toHome(local) {
+    // 北京 = 当地时间 − 时差（当地与北京相差的分钟数）；时差来自真实天气时区
+    var diffMin = (state.live && state.live.weather && state.live.weather.tz_offset != null)
+      ? ((state.live.weather.tz_offset - 28800) / 3600) * 60
+      : -60; // 演示 fallback：东京/首尔比北京快 1 小时
     var p = local.split(':');
-    var m = (parseInt(p[0], 10) * 60 + parseInt(p[1], 10) - 60 + 1440) % 1440;
+    var m = (parseInt(p[0], 10) * 60 + parseInt(p[1], 10) - diffMin + 1440) % 1440;
     return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
   }
   function timeToMin(t) { var p = t.split(':'); return parseInt(p[0], 10) * 60 + parseInt(p[1], 10); }
@@ -276,6 +280,9 @@
       (w ? '<div class="tz-row"><span>当地实时天气</span><b>' + w.desc + ' ' + w.temp + '℃</b></div>' : '') +
       '<div class="tz-row"><span>双时钟对照</span><b>自动换算 · 实时更新</b></div>' +
       '<p class="tz-note">行程的每一条，都会同时显示「' + live.city + ' 当地时间」与「北京时间」。</p>';
+    // 生成真实行程后：S2 不再需要「选择目的地」，隐藏表单只显示时区卡
+    var s2 = document.querySelector('#s2');
+    if (s2) s2.classList.add('has-live');
   }
 
   /* ---------------- S1 偏好快捷 chips ---------------- */
@@ -389,9 +396,9 @@
   var fBeijing = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Shanghai' });
   function pad2(n) { return String(n).padStart(2, '0'); }
   function fmtOffset(offsetSec) {
-    // 根据 UTC 偏移（秒）显示「当地此刻」，任意城市通用
+    // 根据 UTC 偏移（秒）显示「当地此刻」。now.getTime() 即 UTC 毫秒，直接加目标偏移即可
     var now = new Date();
-    var utcMs = now.getTime() + now.getTimezoneOffset() * 60000 + offsetSec * 1000;
+    var utcMs = now.getTime() + offsetSec * 1000;
     var d = new Date(utcMs);
     return pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes());
   }
@@ -657,6 +664,8 @@
     state.live = null;
     state.generating = false;
     state.trip = DATA.trip; // 回到东京演示数据
+    var s2 = document.querySelector('#s2');
+    if (s2) s2.classList.remove('has-live'); // 恢复 S2 演示表单
     activeDay = 1;
     renderTimeline();
     renderAIStatic();

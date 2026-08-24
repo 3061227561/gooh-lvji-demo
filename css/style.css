@@ -817,6 +817,10 @@ h3 { font-size: 17px; font-weight: 700; }
   .clock-tip { display: none; }
 }
 
+/* ---------- S2 生成真实行程后：隐藏目的地表单，只留真实时区卡 ---------- */
+.screen.has-live .form-card { display: none; }
+.screen.has-live .split { grid-template-columns: 1fr; max-width: 560px; margin: 0 auto; }
+
 /* ---------- S3 生成中占位（不显示东京贴图） ---------- */
 .gen-loading {
   text-align: center;
