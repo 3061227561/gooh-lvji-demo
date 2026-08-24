@@ -301,7 +301,7 @@ def _itinerary_prompt(city, days, budget, preferences):
         '（无 note 字段）。规则：每天 5-7 个事件、local 升序、tag 取 景点/美食/交通/住宿/休憩/夜景/购物；'
         '首日含到达、末日含离开、每天含用餐与住宿；不走回头路、相邻景点标注交通耗时；'
         '经济→免费景点+公交，舒适→含门票+打车，豪华→高消费体验；天越长越松、越短越紧凑。'
-        '只输出 JSON 对象。'
+        '只输出 JSON 对象，必须包含 days 数组（数组每个元素含 day/label/events）。'
     )
 
 
@@ -358,14 +358,21 @@ def _normalize_itinerary(data, city, days, budget):
 
 
 def _generate_itinerary(city, days, budget, preferences, key):
-    """智谱生成完整每日行程；失败抛错（由调用方兜底回退）。
+    """智谱生成完整每日行程。
 
-    Vercel Hobby 函数 10s 硬限：必须把智谱输出压到 ~1024 token（每天 4-5 事件、字段极简），
-    请求超时 8s，给冷启动留余量。
+    智谱偶发输出结构异常（缺 days / 截断），自动重试一次；仍失败则带智谱输出片段抛错，
+    便于诊断。腾讯云函数超时 120s，两次生成 + 余量充足。
     """
-    text = _zhipu_chat(_itinerary_prompt(city, days, budget, preferences), key,
-                       max_tokens=2560, timeout=50)
-    return _normalize_itinerary(_extract_json_object(text), city, days, budget)
+    last = None
+    for _attempt in range(2):
+        text = _zhipu_chat(_itinerary_prompt(city, days, budget, preferences), key,
+                           max_tokens=2560, timeout=50)
+        try:
+            return _normalize_itinerary(_extract_json_object(text), city, days, budget)
+        except Exception as e:  # noqa: BLE001
+            last = str(e) + ' | 智谱输出: ' + (text or '')[:150]
+            time.sleep(1)
+    raise Exception(last)
 
 
 def _adjust_itinerary(city, instruction, itinerary, days, budget, key):
