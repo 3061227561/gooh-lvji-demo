@@ -24,6 +24,7 @@ Gooh旅记 · 任意城市攻略生成器 —— Vercel Python Serverless 函数
 import json
 import os
 import re
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -59,6 +60,27 @@ def _cors():
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
+    }
+
+
+def _mask_key(k):
+    if not k:
+        return 'not-set'
+    return k[:6] + '...(' + str(len(k)) + ' 字符)'
+
+
+def _ping():
+    """诊断端点：确认函数存活 + 环境变量是否配好（只显示 key 前几位）。"""
+    import datetime
+    return {
+        'ok': True,
+        'service': 'gooh-api (tencent scf)',
+        'time': datetime.datetime.utcnow().isoformat() + 'Z',
+        'python': sys.version.split()[0],
+        'env': {
+            'ZHIPU_API_KEY': _mask_key(_key('ZHIPU_API_KEY')),
+            'OPEN_WEATHER_MAP_KEY': _mask_key(_key('OPEN_WEATHER_MAP_KEY')),
+        },
     }
 
 
@@ -534,6 +556,20 @@ class handler(BaseHTTPRequestHandler):
 # 部署到腾讯云时入口函数名设为 main_handler；国内直连智谱、时限可配 60s+，
 # 解决 Vercel 免费层 10s 硬限装不下完整行程的问题。
 # =========================================================
+def _scf_reply(result, status=200):
+    return {
+        'statusCode': status,
+        'headers': {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        },
+        'body': json.dumps(result, ensure_ascii=False),
+        'isBase64Encoded': False,
+    }
+
+
 def main_handler(event, context):
     """腾讯云 SCF Web 函数入口。event 为 API 网关/Web 函数事件 JSON。"""
     method = (event.get('httpMethod') or 'GET').upper()
@@ -543,6 +579,10 @@ def main_handler(event, context):
 
     if method == 'OPTIONS':  # 预检
         return {'statusCode': 204, 'headers': _cors(), 'body': ''}
+
+    # 诊断端点：先确认函数活着 + 环境变量配置状态
+    if method == 'GET' and path.rstrip('/') == '/api/ping':
+        return _scf_reply(_ping())
 
     # 归一化 query 为 {k: [v]}（_run 期望 list 值）
     params = {}
@@ -565,14 +605,7 @@ def main_handler(event, context):
     except Exception as e:  # noqa: BLE001
         result = {'ok': False, 'error': 'server_error', 'message': str(e)}
 
-    return {
-        'statusCode': 200,
-        'headers': {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-        },
-        'body': json.dumps(result, ensure_ascii=False),
-        'isBase64Encoded': False,
-    }
+    # 打印到 stdout，腾讯云 SCF 会抓进日志（配合日志投递查看）
+    print('[gooh] %s %s -> %s %s' % (
+        method, path, result.get('ok'), result.get('error') or ''), flush=True)
+    return _scf_reply(result)
