@@ -1,11 +1,11 @@
 /* =========================================================
  * Gooh旅记 · 实时查询配置（js/config.js）
  *
- * API_BASE 已指向 Vercel 部署地址，实时查询已启用。
+ * API_BASE 已指向腾讯云云函数（国内直连智谱/和风，无 10s 限制，行程完整生成）。
  * 留空 / 仍含「你的」占位 = 不启用实时查询，自动回退本地演示数据（双模式）。
- * API key 放在 Vercel 环境变量里（OPEN_TRIP_MAP_KEY / OPEN_WEATHER_MAP_KEY），
+ * API key 全部放在腾讯云环境变量里（QWEATHER_KEY / QWEATHER_HOST / ZHIPU_API_KEY），
  * 绝不要写进前端文件。
  * ========================================================= */
 window.CONFIG = {
-  API_BASE: 'https://gooh-lvji-demo.vercel.app',
+  API_BASE: 'https://1474137454-h2hp32tv7j.ap-guangzhou.tencentscf.com',
 };
