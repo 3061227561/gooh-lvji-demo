@@ -137,10 +137,11 @@ def _weather(name, coords, key):
 
 
 # ---------------- 智谱（OpenAI 兼容端点，国内直连免费） ----------------
-def _zhipu_chat(prompt, key, max_tokens=2048, timeout=10):
+def _zhipu_chat(prompt, key, max_tokens=2560, timeout=50):
     """调智谱 GLM-4-Flash 并返回文本内容。
 
-    注意：Vercel Hobby 免费层函数时限为 10s 硬上限，timeout 必须留足余量。
+    注：Vercel Hobby 函数时限 10s（当时把 timeout 收紧到 8s）；
+    腾讯云 SCF 超时可配 120s，这里放宽到 50s，给智谱生成完整行程留足时间。
     """
     payload = {
         'model': ZHIPU_MODEL,
@@ -222,11 +223,11 @@ def _itinerary_prompt(city, days, budget, preferences):
     return (
         '你是旅行行程规划师。为「' + city + '」生成 ' + str(days) + ' 天行程，'
         '预算「' + budget + '」偏好「' + pref + '」。'
-        '输出严格 JSON，不要 Markdown 和多余文字，字段务必简短（title≤8字、place≤10字、transit≤10字）。'
+        '输出严格 JSON，不要 Markdown 和多余文字；title≤8字、place≤10字、transit≤12字（简短但不省略信息）。'
         '格式：{"title":"xx","days":[{"day":1,"label":"抵达日","events":['
         '{"local":"09:00","title":"抵达","place":"机场","transit":"机场快线40分","tag":"交通"}]}]}'
-        '（无 note 字段）。规则：每天 4-5 个事件、local 升序、tag 取 景点/美食/交通/住宿/休憩/夜景/购物；'
-        '首日含到达、末日含离开、每天含用餐与住宿；不走回头路；'
+        '（无 note 字段）。规则：每天 5-7 个事件、local 升序、tag 取 景点/美食/交通/住宿/休憩/夜景/购物；'
+        '首日含到达、末日含离开、每天含用餐与住宿；不走回头路、相邻景点标注交通耗时；'
         '经济→免费景点+公交，舒适→含门票+打车，豪华→高消费体验；天越长越松、越短越紧凑。'
         '只输出 JSON 对象。'
     )
@@ -291,7 +292,7 @@ def _generate_itinerary(city, days, budget, preferences, key):
     请求超时 8s，给冷启动留余量。
     """
     text = _zhipu_chat(_itinerary_prompt(city, days, budget, preferences), key,
-                       max_tokens=1024, timeout=8)
+                       max_tokens=2560, timeout=50)
     return _normalize_itinerary(_extract_json_object(text), city, days, budget)
 
 
@@ -305,7 +306,7 @@ def _adjust_itinerary(city, instruction, itinerary, days, budget, key):
         'events 每项含 local/title/place/transit/tag/verified）。只改动受需求影响的部分，其余保持不变；'
         '保持每天 5-8 个事件、时间升序、tag 规范。只输出 JSON 对象，不要 Markdown。'
     )
-    text = _zhipu_chat(prompt, key, max_tokens=1024, timeout=8)
+    text = _zhipu_chat(prompt, key, max_tokens=2560, timeout=50)
     return _normalize_itinerary(_extract_json_object(text), city, days, budget)
 
 
