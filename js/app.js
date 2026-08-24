@@ -192,6 +192,13 @@
         ' · 已回退本地演示数据</div>';
       return;
     }
+    if (live.itinerary_error) { // 天气/时区正常，但智谱生成行程超时
+      panel.className = 'card live-panel is-fallback';
+      panel.innerHTML = '<div class="live-head">🎯 实时查询 · <b>' + live.city + '</b></div>' +
+        '<div class="live-weather">天气/时区正常 · 行程生成超时（' + live.itinerary_error +
+        '）· 已回退本地演示数据，可稍后重试</div>';
+      return;
+    }
     panel.className = 'card live-panel is-live';
     var html = '<div class="live-head">🎯 实时查询 · <b>' + live.city + '</b></div>';
     var w = live.weather;
